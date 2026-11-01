@@ -10,6 +10,8 @@ import { CROPS, ITEM_ORDER, type CropId, type ItemId } from './items';
 
 type Ctx = CanvasRenderingContext2D;
 const S = 16;
+/** Each tile sits in an 18x18 cell: the 16x16 tile plus a 1-pixel extruded border. */
+export const TILE_CELL = S + 2;
 
 function fill(c: Ctx, x: number, y: number, w: number, h: number, color: string) {
   c.fillStyle = color;
@@ -675,11 +677,25 @@ function heart(c: Ctx, ox: number, color: string, shine: boolean) {
 export function generateTextures(scene: Phaser.Scene): void {
   const r = mulberry32(7);
 
-  const tiles = scene.textures.createCanvas('tiles', S * TILE_COUNT, S)!;
+  // Draw the tiles side by side on a scratch canvas, then copy each into an 18x18 cell with a 1-pixel border
+  // that repeats its own edge pixels. Without that border, GPUs can sample a sliver of the neighbouring tile
+  // at tile edges, which shows up as thin coloured lines across the map.
+  const raw = document.createElement('canvas');
+  raw.width = S * TILE_COUNT;
+  raw.height = S;
+  const rc = raw.getContext('2d')!;
+  for (let i = 0; i < TILE_COUNT; i++) drawTile(rc, i, r);
+  const tiles = scene.textures.createCanvas('tiles', TILE_CELL * TILE_COUNT, TILE_CELL)!;
   const tc = tiles.getContext();
   for (let i = 0; i < TILE_COUNT; i++) {
-    drawTile(tc, i, r);
-    tiles.add(`t${i}`, 0, i * S, 0, S, S);
+    const sx = i * S, ox = i * TILE_CELL;
+    const copy = (x: number, y: number, w: number, h: number, dx: number, dy: number) => tc.drawImage(raw, sx + x, y, w, h, ox + dx, dy, w, h);
+    copy(0, 0, S, S, 1, 1);
+    copy(0, 0, 1, S, 0, 1); copy(S - 1, 0, 1, S, S + 1, 1);       // left and right edges
+    copy(0, 0, S, 1, 1, 0); copy(0, S - 1, S, 1, 1, S + 1);       // top and bottom edges
+    copy(0, 0, 1, 1, 0, 0); copy(S - 1, 0, 1, 1, S + 1, 0);       // corners
+    copy(0, S - 1, 1, 1, 0, S + 1); copy(S - 1, S - 1, 1, 1, S + 1, S + 1);
+    tiles.add(`t${i}`, 0, ox + 1, 1, S, S);
   }
   tiles.refresh();
 

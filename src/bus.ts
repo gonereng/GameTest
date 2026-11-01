@@ -22,5 +22,6 @@ export const ui = {
   dialogue: (opts: DialogueOpts) => bus.emit('dialogue', opts),
   toast: (text: string) => bus.emit('toast', text),
   shop: () => bus.emit('shop'),
+  sell: () => bus.emit('sell'),
   location: (name: string) => bus.emit('location', name),
 };

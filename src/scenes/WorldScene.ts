@@ -103,7 +103,8 @@ export class WorldScene extends Phaser.Scene {
     runtime.indoor = def.indoor;
 
     const tilemap = this.make.tilemap({ data: def.tiles.map(r => r.slice()), tileWidth: TILE, tileHeight: TILE });
-    const tileset = tilemap.addTilesetImage('tiles', 'tiles', TILE, TILE, 0, 0)!;
+    // margin 1, spacing 2: matches the extruded 18x18 cells built in textures.ts.
+    const tileset = tilemap.addTilesetImage('tiles', 'tiles', TILE, TILE, 1, 2)!;
     this.layer = tilemap.createLayer(0, tileset, 0, 0)!;
     this.layer.setCollision(SOLID);
 
@@ -471,6 +472,36 @@ export class WorldScene extends Phaser.Scene {
     });
   }
 
+  /**
+   * Fast-forwards the clock without ending the day. Every skipped minute still runs the story's clock
+   * (moonlight growth, the 10 PM events), so nothing is missed. Naps also restore some energy.
+   */
+  private skipTime(minutes: number, nap: boolean): void {
+    // Can't skip into the 2 AM collapse; go to bed instead.
+    const latest = DAY_END - 10;
+    const step = Math.min(minutes, latest - state.minutes);
+    if (step < 10) {
+      ui.dialogue({ lines: ["It's too late for that. Better get some proper sleep."] });
+      return;
+    }
+    this.transitioning = true;
+    this.pbody().setVelocity(0, 0);
+    const cam = this.cameras.main;
+    cam.fadeOut(350, 0, 0, 0);
+    cam.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
+      for (let i = 0; i < step; i++) {
+        state.minutes++;
+        this.story.onMinute();
+      }
+      this.tickAcc = 0;
+      if (nap) state.energy = Math.min(state.maxEnergy, state.energy + Math.round(step / 6));
+      this.transitioning = false;
+      cam.fadeIn(350, 0, 0, 0);
+      const span = step % 60 === 0 ? `${step / 60} hour${step === 60 ? '' : 's'}` : `${step} minutes`;
+      ui.toast(`${nap ? 'You napped' : 'You waited'} for ${span}. It's ${formatTime(state.minutes)}.`);
+    });
+  }
+
   /** Ends the day: everything grows, the game saves, and you wake up at home. */
   private endDay(passedOut: boolean, wake?: string): void {
     this.transitioning = true;
@@ -540,7 +571,9 @@ export class WorldScene extends Phaser.Scene {
         ui.dialogue({
           lines: [`Your bed. It's ${formatTime(state.minutes)}.`],
           choices: [
-            { label: 'Sleep (end the day and save)', action: () => this.endDay(false) },
+            { label: 'Sleep until morning (ends the day and saves)', action: () => this.endDay(false) },
+            { label: 'Nap for 1 hour (+10 energy)', action: () => this.skipTime(60, true) },
+            { label: 'Nap for 3 hours (+30 energy)', action: () => this.skipTime(180, true) },
             { label: 'Not yet' },
           ],
         });
@@ -567,37 +600,7 @@ export class WorldScene extends Phaser.Scene {
   }
 
   private ship(): void {
-    let total = 0, count = 0;
-    state.inventory.forEach(s => {
-      const def = s && ITEMS[s.id];
-      if (s && def?.sell && ['produce', 'material', 'forage'].includes(def.kind)) {
-        total += def.sell * s.qty;
-        count += s.qty;
-      }
-    });
-    if (!count) {
-      ui.dialogue({ speaker: 'Shipping Bin', lines: ['Crops, forage and slime gel go in here. The buyer pays right away.', 'You have nothing to ship right now.'] });
-      return;
-    }
-    ui.dialogue({
-      speaker: 'Shipping Bin',
-      lines: [`Ship ${count} item${count > 1 ? 's' : ''} for ${total}g?`],
-      choices: [
-        {
-          label: `Ship everything (+${total}g)`,
-          action: () => {
-            state.inventory.forEach((s, i) => {
-              const def = s && ITEMS[s.id];
-              if (s && def?.sell && ['produce', 'material', 'forage'].includes(def.kind)) state.inventory[i] = null;
-            });
-            state.gold += total;
-            state.shipped += total;
-            ui.toast(`+${total}g`);
-          },
-        },
-        { label: 'Keep them' },
-      ],
-    });
+    ui.sell();
   }
 
   private useSelected(): void {
@@ -712,6 +715,7 @@ export class WorldScene extends Phaser.Scene {
         (goalText() ? `\nGoal: ${goalText()}` : '')],
       choices: [
         { label: 'Resume' },
+        { label: 'Wait 1 hour', action: () => this.skipTime(60, false) },
         { label: 'Controls', action: () => ui.dialogue({ speaker: 'Controls', lines: CONTROLS }) },
         {
           label: 'Quit to title (progress since you last slept is lost)',

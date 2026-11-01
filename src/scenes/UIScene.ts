@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { ITEMS, type ItemId } from '../items';
-import { HOTBAR_SIZE, addItem, formatTime, runtime, state } from '../state';
+import { HOTBAR_SIZE, addItem, formatTime, removeItem, runtime, state } from '../state';
 import { bus, modal, type DialogueOpts } from '../bus';
 import { TouchControls, isTouchDevice, touch } from '../touch';
 import { buyStoryItem, deadlineText, flag, goalText, moonMissing, storyShopEntries, type StoryShopEntry } from '../quest';
@@ -30,6 +30,13 @@ const textStyle = (size: number, color = '#ffffff'): Phaser.Types.GameObjects.Te
 function panel(g: Phaser.GameObjects.Graphics, x: number, y: number, w: number, h: number, alpha = 0.88) {
   g.fillStyle(PANEL, alpha).fillRoundedRect(x, y, w, h, 10);
   g.lineStyle(3, BORDER, 1).strokeRoundedRect(x, y, w, h, 10);
+}
+
+/** "Strawberry" -> "Strawberries", "Egg" -> "Eggs", "Wild Berries" stays as it is. */
+function plural(name: string): string {
+  if (name.endsWith('s')) return name;
+  if (/[^aeiou]y$/.test(name)) return name.slice(0, -1) + 'ies';
+  return name + 's';
 }
 
 /** How dark the night overlay is at a given time. */
@@ -77,8 +84,10 @@ export class UIScene extends Phaser.Scene {
   private shop?: {
     cursor: number; root: Phaser.GameObjects.Container; rows: Phaser.GameObjects.Text[];
     prices: Phaser.GameObjects.Text[]; sel: Phaser.GameObjects.Graphics; desc: Phaser.GameObjects.Text;
-    gold: Phaser.GameObjects.Text;
+    gold: Phaser.GameObjects.Text; status: Phaser.GameObjects.Text;
   };
+  /** The shipping bin's sell menu. Rebuilt after every sale. */
+  private sell?: { cursor: number; root: Phaser.GameObjects.Container; count: number };
 
   constructor() { super('UI'); }
 
@@ -122,11 +131,13 @@ export class UIScene extends Phaser.Scene {
     bus.on('toast', this.toast, this);
     bus.on('dialogue', this.openDialogue, this);
     bus.on('shop', this.openShop, this);
+    bus.on('sell', this.openSell, this);
     bus.on('location', this.showLocation, this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       bus.off('toast', this.toast, this);
       bus.off('dialogue', this.openDialogue, this);
       bus.off('shop', this.openShop, this);
+      bus.off('sell', this.openSell, this);
       bus.off('location', this.showLocation, this);
       modal.open = false;
     });
@@ -155,6 +166,7 @@ export class UIScene extends Phaser.Scene {
       this.dlg.hint.setX(this.W - 64);
       this.renderDialogue();
     }
+    if (this.sell) this.openSell(this.sell.cursor);
     if (this.shop) {
       const cursor = this.shop.cursor;
       this.closeShop();
@@ -284,7 +296,8 @@ export class UIScene extends Phaser.Scene {
   }
 
   private toast(text: string): void {
-    const t = this.add.text(this.W / 2, 0, text, textStyle(20)).setOrigin(0.5).setDepth(50);
+    // Above dialogue boxes and the shop, so messages are never hidden.
+    const t = this.add.text(this.W / 2, 0, text, textStyle(20)).setOrigin(0.5).setDepth(200);
     this.toasts.push(t);
     this.layoutToasts();
     this.tweens.add({
@@ -379,7 +392,7 @@ export class UIScene extends Phaser.Scene {
     this.dlg = undefined;
     this.tweens.killTweensOf(d.hint);
     d.root.destroy();
-    modal.open = !!this.shop;
+    modal.open = !!this.shop || !!this.sell;
     modal.closedAt = performance.now();
     if (runOnClose) d.opts.onClose?.();
   }
@@ -387,7 +400,7 @@ export class UIScene extends Phaser.Scene {
   // ------------------------------------------------------------------ shop
 
   private shopRect() {
-    const w = 600, h = 170 + this.entries.length * ROW;
+    const w = 600, h = 200 + this.entries.length * ROW;
     return { w, h, x: (this.W - w) / 2, y: Math.max(12, (this.H - h) / 2 - 40) };
   }
 
@@ -434,13 +447,14 @@ export class UIScene extends Phaser.Scene {
     });
     const desc = this.add.text(x + 30, y + h - 96, '', { ...textStyle(18, '#e8dcc0'), wordWrap: { width: w - 60 } });
     const gold = this.add.text(x + 30, y + h - 40, '', textStyle(20, '#ffe27a'));
+    const status = this.add.text(x + w / 2, y + h - 122, '', textStyle(20, '#9be37a')).setOrigin(0.5).setAlpha(0);
     const hint = this.add.text(x + w - 30, y + h - 40, touch.enabled ? 'Tap twice to buy' : 'Space: buy   Esc: leave', textStyle(16, '#c8b090')).setOrigin(1, 0);
     const close = this.add.text(x + w - 22, y + 14, 'X', { ...textStyle(26, '#ffe27a'), backgroundColor: '#5a3a20', padding: { x: 10, y: 2 } })
       .setOrigin(1, 0).setInteractive({ useHandCursor: true });
     close.on('pointerup', () => this.closeShop());
-    root.add([desc, gold, hint, close]);
+    root.add([desc, gold, hint, close, status]);
     this.shopTapped = -1;
-    this.shop = { cursor: 0, root, rows, prices, sel, desc, gold };
+    this.shop = { cursor: 0, root, rows, prices, sel, desc, gold, status };
     modal.open = true;
     modal.openedAt = performance.now();
     this.renderShop();
@@ -467,31 +481,156 @@ export class UIScene extends Phaser.Scene {
     const e = this.entries[s.cursor];
     if (e.story) {
       const err = buyStoryItem(e.story);
-      if (err) { this.toast(err); return; }
-      this.toast(`Bought ${e.name}.`);
+      if (err) { this.shopStatus(err, false); return; }
       // Story items are one-offs: rebuild the list without it.
       this.closeShop();
       this.openShop();
+      this.shopStatus(`Bought ${e.name}! (-${e.price}g)`, true);
       return;
     }
-    if (state.gold < e.price) { this.toast('Not enough gold.'); return; }
+    if (state.gold < e.price) { this.shopStatus(`Not enough gold. You need ${e.price - state.gold}g more.`, false); return; }
     if (e.special === 'heart') {
-      if (state.maxHp >= MAX_HEARTS) { this.toast('You already have the most hearts possible.'); return; }
+      if (state.maxHp >= MAX_HEARTS) { this.shopStatus('You already have the most hearts possible.', false); return; }
       state.maxHp++;
       state.hp = state.maxHp;
     } else if (!addItem(e.id!, 1)) {
-      this.toast('Your bag is full!');
+      this.shopStatus('Your bag is full!', false);
       return;
     }
     state.gold -= e.price;
-    this.toast(`Bought ${e.name}.`);
     this.renderShop();
+    this.shopStatus(`Bought ${e.name}! (-${e.price}g)`, true);
+    // A little bounce on the row you bought from.
+    const row = s.rows[s.cursor];
+    this.tweens.add({ targets: row, scale: 1.12, duration: 90, yoyo: true });
+  }
+
+  /** A short message inside the shop panel: green for a purchase, red for a problem. */
+  private shopStatus(msg: string, ok: boolean): void {
+    const t = this.shop?.status;
+    if (!t) return;
+    this.tweens.killTweensOf(t);
+    t.setText(msg).setColor(ok ? '#9be37a' : '#ff8a7a').setAlpha(1).setScale(1.15);
+    this.tweens.add({ targets: t, scale: 1, duration: 150, ease: 'Back.out' });
+    this.tweens.add({ targets: t, alpha: 0, delay: 1600, duration: 400 });
+  }
+
+  // ------------------------------------------------------------------ sell (shipping bin)
+
+  /** Sellable items in the bag, one entry per item type. */
+  private sellables(): { id: ItemId; qty: number; price: number }[] {
+    const out = new Map<ItemId, { id: ItemId; qty: number; price: number }>();
+    for (const s of state.inventory) {
+      const def = s && ITEMS[s.id];
+      if (!s || !def?.sell || !['produce', 'material', 'forage'].includes(def.kind)) continue;
+      const e = out.get(s.id) ?? { id: s.id, qty: 0, price: def.sell };
+      e.qty += s.qty;
+      out.set(s.id, e);
+    }
+    return [...out.values()];
+  }
+
+  private openSell(cursor = 0, status?: { msg: string; ok: boolean }): void {
+    this.sell?.root.destroy();
+    const items = this.sellables();
+    const total = items.reduce((n, e) => n + e.qty * e.price, 0);
+    const rowsCount = items.length ? items.length + 1 : 1; // + "ship everything"
+    const w = 680, h = 190 + rowsCount * ROW;
+    const x = (this.W - w) / 2, y = Math.max(12, (this.H - h) / 2 - 40);
+    cursor = Math.min(cursor, Math.max(0, rowsCount - 1));
+    const root = this.add.container(0, 0).setDepth(90);
+    const g = this.add.graphics();
+    panel(g, x, y, w, h, 0.96);
+    root.add([g, this.add.text(x + w / 2, y + 30, 'Shipping Bin', textStyle(26, '#ffe27a')).setOrigin(0.5)]);
+    const close = this.add.text(x + w - 22, y + 14, 'X', { ...textStyle(26, '#ffe27a'), backgroundColor: '#5a3a20', padding: { x: 10, y: 2 } })
+      .setOrigin(1, 0).setInteractive({ useHandCursor: true });
+    close.on('pointerup', () => this.closeSell());
+    root.add(close);
+
+    if (items.length) {
+      const sel = this.add.graphics();
+      sel.fillStyle(0x5a3a20, 1).fillRoundedRect(x + 18, y + 78 + cursor * ROW - 20, w - 36, 40, 8);
+      sel.lineStyle(2, 0xffe27a, 1).strokeRoundedRect(x + 18, y + 78 + cursor * ROW - 20, w - 36, 40, 8);
+      root.add(sel);
+    }
+    const button = (bx: number, by: number, label: string, onTap: () => void) => {
+      const b = this.add.text(bx, by, label, { ...textStyle(18, '#ffe27a'), backgroundColor: '#3a2412', padding: { x: 8, y: 3 } })
+        .setOrigin(0.5).setInteractive({ useHandCursor: true });
+      b.on('pointerup', onTap);
+      root.add(b);
+    };
+    items.forEach((e, i) => {
+      const ry = y + 78 + i * ROW;
+      const hover = this.add.zone(x + 18, ry - 20, w - 36, 40).setOrigin(0).setInteractive();
+      hover.on('pointerover', () => { if (this.sell && this.sell.cursor !== i) this.openSell(i); });
+      root.add([
+        hover,
+        this.add.image(x + 46, ry, 'items', e.id).setScale(2.2),
+        this.add.text(x + 76, ry, `${ITEMS[e.id].name}  x${e.qty}`, textStyle(21, i === cursor ? '#ffffff' : '#e8dcc0')).setOrigin(0, 0.5),
+        this.add.text(x + w - 250, ry, `${e.price}g each`, textStyle(18, '#ffe27a')).setOrigin(1, 0.5),
+      ]);
+      button(x + w - 180, ry, 'Sell 1', () => this.sellItem(e.id, 1, i));
+      button(x + w - 80, ry, `All +${e.qty * e.price}g`, () => this.sellItem(e.id, e.qty, i));
+    });
+    const lastY = y + 78 + (rowsCount - 1) * ROW;
+    if (items.length) {
+      const hover = this.add.zone(x + 18, lastY - 20, w - 36, 40).setOrigin(0).setInteractive();
+      hover.on('pointerover', () => { if (this.sell && this.sell.cursor !== items.length) this.openSell(items.length); });
+      root.add([hover, this.add.text(x + 76, lastY, 'Ship everything', textStyle(21, cursor === items.length ? '#ffffff' : '#e8dcc0')).setOrigin(0, 0.5)]);
+      button(x + w - 80, lastY, `+${total}g`, () => this.sellEverything());
+    } else {
+      root.add(this.add.text(x + w / 2, lastY, 'Nothing to sell. Crops, eggs, forage and gel go in here.', textStyle(18, '#e8dcc0')).setOrigin(0.5));
+    }
+    const statusText = this.add.text(x + w / 2, y + h - 80, '', textStyle(20, '#9be37a')).setOrigin(0.5).setAlpha(0);
+    root.add([
+      statusText,
+      this.add.text(x + 30, y + h - 40, `Your gold: ${state.gold}g`, textStyle(20, '#ffe27a')),
+      this.add.text(x + w - 30, y + h - 40, touch.enabled ? 'Tap Sell 1 or All' : 'Space: sell 1   A: sell all   Esc: close', textStyle(16, '#c8b090')).setOrigin(1, 0),
+    ]);
+    if (status) {
+      statusText.setText(status.msg).setColor(status.ok ? '#9be37a' : '#ff8a7a').setAlpha(1).setScale(1.15);
+      this.tweens.add({ targets: statusText, scale: 1, duration: 150, ease: 'Back.out' });
+      this.tweens.add({ targets: statusText, alpha: 0, delay: 1600, duration: 400 });
+    }
+    const wasOpen = !!this.sell;
+    this.sell = { cursor, root, count: items.length };
+    modal.open = true;
+    if (!wasOpen) modal.openedAt = performance.now();
+  }
+
+  private sellItem(id: ItemId, qty: number, cursor: number): void {
+    const price = ITEMS[id].sell ?? 0;
+    if (!removeItem(id, qty)) return;
+    state.gold += price * qty;
+    state.shipped += price * qty;
+    const name = ITEMS[id].name;
+    this.openSell(cursor, { msg: `Sold ${qty} ${qty > 1 ? plural(name) : name} for ${price * qty}g`, ok: true });
+  }
+
+  private sellEverything(): void {
+    const items = this.sellables();
+    if (!items.length) return;
+    let total = 0;
+    for (const e of items) {
+      removeItem(e.id, e.qty);
+      total += e.qty * e.price;
+    }
+    state.gold += total;
+    state.shipped += total;
+    this.openSell(0, { msg: `Shipped everything for ${total}g!`, ok: true });
+  }
+
+  private closeSell(): void {
+    this.sell?.root.destroy();
+    this.sell = undefined;
+    modal.open = !!this.dlg || !!this.shop;
+    modal.closedAt = performance.now();
   }
 
   private closeShop(): void {
     this.shop?.root.destroy();
     this.shop = undefined;
-    modal.open = !!this.dlg;
+    modal.open = !!this.dlg || !!this.sell;
     modal.closedAt = performance.now();
   }
 
@@ -514,6 +653,19 @@ export class UIScene extends Phaser.Scene {
         else if (confirm) this.pickChoice(d.choice);
         else if (cancel) this.closeDialogue(false);
       } else if (confirm || cancel) this.advance();
+      return;
+    }
+    if (this.sell) {
+      const items = this.sellables();
+      const n = items.length ? items.length + 1 : 1;
+      const cur = this.sell.cursor;
+      if (up) this.openSell((cur + n - 1) % n);
+      else if (down) this.openSell((cur + 1) % n);
+      else if (cancel) this.closeSell();
+      else if (!items.length) return;
+      else if (cur === items.length && (confirm || c === 'KeyA')) this.sellEverything();
+      else if (confirm) this.sellItem(items[cur].id, 1, cur);
+      else if (c === 'KeyA') this.sellItem(items[cur].id, items[cur].qty, cur);
       return;
     }
     if (this.shop) {
