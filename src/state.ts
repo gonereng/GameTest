@@ -1,4 +1,4 @@
-import { CROPS, ITEMS, type CropId, type ItemId } from './items';
+import { CROPS, ITEMS, RENAMED_ITEMS, type CropId, type ItemId } from './items';
 
 export interface Stack {
   id: ItemId;
@@ -45,7 +45,7 @@ export function newGame(): GameState {
   inventory[0] = { id: 'hoe', qty: 1 };
   inventory[1] = { id: 'can', qty: 1 };
   inventory[2] = { id: 'sword', qty: 1 };
-  inventory[3] = { id: 'seed_carrot', qty: 8 };
+  inventory[3] = { id: 'seed_strawberry', qty: 8 };
   return {
     version: 1,
     day: 1,
@@ -107,10 +107,24 @@ export function loadSave(key = SAVE_KEY): GameState | null {
     if (!raw) return null;
     const data = JSON.parse(raw) as Partial<GameState>;
     if (data.version !== 1) return null;
-    return { ...newGame(), ...data };
+    return migrate({ ...newGame(), ...data });
   } catch {
     return null;
   }
+}
+
+/** Updates saves from older versions of the game. */
+function migrate(s: GameState): GameState {
+  const rename = (id: string) => (RENAMED_ITEMS[id] ?? id) as ItemId;
+  s.inventory = s.inventory.map(st => (st && ITEMS[rename(st.id)] ? { ...st, id: rename(st.id) } : null));
+  for (const soil of Object.values(s.soil)) {
+    if (soil.crop) {
+      const id = rename(soil.crop.id) as CropId;
+      if (CROPS[id]) soil.crop.id = id;
+      else delete soil.crop;
+    }
+  }
+  return s;
 }
 
 export function continueGame(): boolean {
@@ -181,11 +195,12 @@ export function isMature(soil: Soil): boolean {
   return !!soil.crop && soil.crop.days >= CROPS[soil.crop.id].days;
 }
 
-/** 0 = seeds, 1 = sprout, 2 = growing, 3 = ready to harvest. */
-export function cropStage(soil: Soil): number {
+/** Which growth frame to draw: 0 = just planted, frames-1 = ready to harvest. */
+export function cropFrame(soil: Soil): number {
   if (!soil.crop) return 0;
-  if (isMature(soil)) return 3;
-  return Math.min(2, Math.floor((soil.crop.days / CROPS[soil.crop.id].days) * 3));
+  const def = CROPS[soil.crop.id];
+  if (isMature(soil)) return def.frames - 1;
+  return Math.min(def.frames - 2, Math.floor((soil.crop.days / def.days) * (def.frames - 1)));
 }
 
 /** Moves to the next morning: watered crops grow, soil dries, forage respawns. */

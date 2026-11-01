@@ -18,7 +18,7 @@ const ROW = 44;
 interface ShopEntry { id?: ItemId; special?: 'heart'; story?: StoryShopEntry; name: string; price: number; desc: string }
 
 const BASE_SHOP: ShopEntry[] = [
-  ...(['seed_carrot', 'seed_turnip', 'seed_moonmelon', 'bread'] as ItemId[]).map(id => ({
+  ...(['seed_strawberry', 'seed_onion', 'seed_potato', 'seed_leek', 'seed_moonmelon', 'bread'] as ItemId[]).map(id => ({
     id, name: ITEMS[id].name, price: ITEMS[id].price!, desc: ITEMS[id].desc,
   })),
   { special: 'heart', name: 'Heart Charm', price: 300, desc: 'Permanently adds one heart. Handy in the woods.' },

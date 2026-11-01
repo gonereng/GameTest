@@ -30,7 +30,7 @@ and fullscreen. Tap to advance dialogue. In the shop, tap an item twice to buy i
 ## What's in it
 
 - **Farming:** till grass with the hoe, plant seeds, water daily. Watered crops grow overnight.
-  Carrots (3 days), Turnips (5 days), Moonmelons (8 days).
+  Strawberries (3 days), Onions (4), Potatoes (5), Leeks (6), Moonmelons (8).
 - **Day cycle:** 6 AM to 2 AM (about 14 real minutes), with nightfall. Energy is spent by tools.
   Sleep in your bed to end the day and save. Staying up past 2 AM makes you pass out.
 - **Combat:** slimes roam Mossy Woods. Swing the sword to defeat them and collect Slime Gel.
@@ -60,6 +60,7 @@ src/
   state.ts           Game state, inventory, day advance, save/load
   textures.ts        All pixel art, drawn with canvas at startup
   slime.ts           Slime enemy
+  critters.ts        Farm animals
   quest.ts           The story: steps, dialogue, puzzles, Gerald, the Turnipult, the finale
   boss.ts            Lord Gloopington III
   bus.ts             Events between the world and the UI
@@ -70,5 +71,11 @@ src/
     UIScene.ts       HUD, hotbar, dialogue boxes, shop
 ```
 
-All art is generated in `textures.ts`, so there are no image files. To use real pixel art later,
-load PNG spritesheets in `BootScene` under the same texture keys and frame names.
+## Art
+
+- The farmer, crops, houses, furniture, maple trees, chest and farm animals are from
+  [Tiny Farm RPG - Asset Pack](https://maevedevs.itch.io/farm-rpg) by **Maeve Devs** (free version),
+  in `public/assets/tiny-farm/`. Its license allows use in games but not redistributing the files,
+  so if you want to reuse them, please get the pack from the author's page.
+- Everything else (tiles, NPCs, slimes, Gerald, UI, icons) is drawn in code in `src/textures.ts`.
+- Sprite rectangles inside the pack sheets are listed in `src/scenes/BootScene.ts`.

@@ -597,7 +597,7 @@ export class Story implements BossHost {
     const tile = this.w.layer.putTileAt(T.DARK_GRASS, FAKE_BUSH.x, FAKE_BUSH.y);
     tile.setCollision(true, true, true, true);
     const x = (FAKE_BUSH.x + 0.5) * TILE, y = (FAKE_BUSH.y + 0.5) * TILE;
-    this.fakeBush = this.scene.add.image(x, y + 8, 'tiles', `t${T.BUSH}`).setOrigin(0.5, 1).setDepth(y + 8);
+    this.fakeBush = this.scene.add.image(x, y + 8, 'tiles', `t${T.DARK_BUSH}`).setOrigin(0.5, 1).setDepth(y + 8);
     this.scene.tweens.add({ targets: this.fakeBush, scaleY: 1.08, scaleX: 0.95, yoyo: true, repeat: -1, duration: 500, ease: 'Sine.inOut' });
   }
 

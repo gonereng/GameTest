@@ -42,18 +42,18 @@ function sprite(c: Ctx, ox: number, oy: number, rows: string[], pal: Record<stri
 // ---------------------------------------------------------------- tiles
 
 function grass(c: Ctx, ox: number, r: () => number) {
-  fill(c, ox, 0, S, S, '#5fa04e');
-  speckle(c, ox, 0, ['#529042', '#6cb25a', '#58983f'], 38, r);
+  fill(c, ox, 0, S, S, '#79bf56');
+  speckle(c, ox, 0, ['#6db24c', '#86c862', '#72b850'], 34, r);
   for (let i = 0; i < 5; i++) {
     const x = Math.floor(r() * 15), y = Math.floor(r() * 14);
-    px(c, ox + x, y, '#7cc466');
-    px(c, ox + x, y + 1, '#4f8a40');
+    px(c, ox + x, y, '#94d26c');
+    px(c, ox + x, y + 1, '#3d993d');
   }
 }
 
 function darkGrass(c: Ctx, ox: number, r: () => number) {
-  fill(c, ox, 0, S, S, '#3f7a3a');
-  speckle(c, ox, 0, ['#356b31', '#4a8a43', '#2f622c'], 40, r);
+  fill(c, ox, 0, S, S, '#4f9a44');
+  speckle(c, ox, 0, ['#448a3c', '#5aa84e', '#3d993d'], 40, r);
   for (let i = 0; i < 4; i++) {
     const x = Math.floor(r() * 15), y = Math.floor(r() * 14);
     px(c, ox + x, y, '#5a9a4e');
@@ -100,14 +100,12 @@ function drawTile(c: Ctx, i: number, r: () => number) {
       fill(c, ox + 4, 12, 3, 1, '#7fb4f2');
       break;
     case T.TREE:
-      grass(c, ox, r);
-      fill(c, ox + 6, 11, 4, 5, '#6b4426');
-      fill(c, ox + 6, 11, 1, 5, '#4e311b');
-      disc(c, ox, 0, 8, 7, 7.4, '#1d4a20');
-      disc(c, ox, 0, 8, 7, 6.4, '#2f7a33');
-      disc(c, ox, 0, 6.5, 5.5, 3.6, '#3f9442');
-      disc(c, ox, 0, 5.5, 4.5, 1.5, '#5ab057');
-      px(c, ox + 11, 9, '#1d4a20'); px(c, ox + 9, 11, '#245a28');
+    case T.DARK_TREE:
+      (i === T.TREE ? grass : darkGrass)(c, ox, r);
+      for (let y = 11; y < 16; y++) for (let x = 2; x < 14; x++) {
+        const dx = (x + 0.5 - 8) / 6, dy = (y + 0.5 - 13.5) / 2.5;
+        if (dx * dx + dy * dy <= 1) px(c, ox + x, y, i === T.TREE ? '#5a9a44' : '#3a7a34');
+      }
       break;
     case T.WALL: wall(c, ox); break;
     case T.ROOF:
@@ -142,7 +140,8 @@ function drawTile(c: Ctx, i: number, r: () => number) {
       speckle(c, ox, 0, ['#5c3d26'], 10, r);
       break;
     case T.ROCK:
-      grass(c, ox, r);
+    case T.DARK_ROCK:
+      (i === T.ROCK ? grass : darkGrass)(c, ox, r);
       disc(c, ox, 0, 8, 9, 6.4, '#4a4a52');
       disc(c, ox, 0, 8, 8.6, 5.4, '#8a8a92');
       disc(c, ox, 0, 6.5, 7, 2.6, '#a8a8b2');
@@ -164,7 +163,8 @@ function drawTile(c: Ctx, i: number, r: () => number) {
       fill(c, ox + 7, 6, 1, 10, '#6b4426');
       break;
     case T.BUSH:
-      grass(c, ox, r);
+    case T.DARK_BUSH:
+      (i === T.BUSH ? grass : darkGrass)(c, ox, r);
       disc(c, ox, 0, 8, 9, 6.8, '#1f4d22');
       disc(c, ox, 0, 8, 8.8, 5.9, '#3a8a3a');
       disc(c, ox, 0, 6, 7, 2.2, '#52a552');
@@ -177,13 +177,12 @@ function drawTile(c: Ctx, i: number, r: () => number) {
       fill(c, ox, 0, S, 2, '#6b4426');
       fill(c, ox, 14, S, 2, '#6b4426');
       break;
-    case T.BIN:
+    case T.BIN: // the chest sprite is drawn on top
+    case T.BLOCK:
       grass(c, ox, r);
-      fill(c, ox + 1, 4, 14, 11, '#7a4a24');
-      fill(c, ox + 1, 3, 14, 3, '#a8763f');
-      fill(c, ox + 1, 9, 14, 1, '#4e311b');
-      fill(c, ox + 1, 14, 14, 1, '#4e311b');
-      px(c, ox + 8, 4, '#e8c040');
+      break;
+    case T.BLOCK_FLOOR:
+      floor(c, ox);
       break;
     case T.SIGN:
       grass(c, ox, r);
@@ -523,7 +522,8 @@ const SLIME_SQUASH = [
 
 // ---------------------------------------------------------------- items
 
-const ITEM_DRAW: Record<ItemId, (c: Ctx, ox: number) => void> = {
+/** Items drawn in code. Crops from the Tiny Farm pack are copied from its sheet instead. */
+const ITEM_DRAW: Partial<Record<ItemId, (c: Ctx, ox: number) => void>> = {
   hoe(c, ox) {
     for (let i = 0; i < 9; i++) { px(c, ox + 3 + i, 13 - i, '#8a5a32'); px(c, ox + 4 + i, 13 - i, '#5e3a1c'); }
     fill(c, ox + 9, 2, 5, 2, '#a8b0bc');
@@ -549,24 +549,7 @@ const ITEM_DRAW: Record<ItemId, (c: Ctx, ox: number) => void> = {
     for (const [x, y] of [[4, 13], [3, 14]]) px(c, ox + x, y, '#6b4426');
     px(c, ox + 2, 15, '#d0a040');
   },
-  seed_carrot: (c, ox) => seedPacket(c, ox, CROPS.carrot.color),
-  seed_turnip: (c, ox) => seedPacket(c, ox, CROPS.turnip.color),
-  seed_moonmelon: (c, ox) => seedPacket(c, ox, CROPS.moonmelon.color),
-  carrot(c, ox) {
-    for (let y = 5; y <= 14; y++) {
-      const w = Math.max(1, Math.round((14 - y) / 1.6));
-      fill(c, ox + 8 - Math.floor(w / 2), y, w, 1, '#e8862a');
-    }
-    for (const y of [7, 10]) px(c, ox + 7, y, '#b8601a');
-    fill(c, ox + 6, 1, 1, 4, '#4aa04a'); fill(c, ox + 8, 0, 1, 5, '#5ab857'); fill(c, ox + 10, 1, 1, 4, '#4aa04a');
-  },
-  turnip(c, ox) {
-    disc(c, ox, 0, 8, 10, 4.8, '#f2e8f2');
-    disc(c, ox, 0, 8, 10, 4.8, '#9a4ab0', (_x, y) => y < 9);
-    px(c, ox + 6, 9, '#ffffff');
-    px(c, ox + 8, 15, '#d8c8d8');
-    fill(c, ox + 6, 1, 1, 4, '#4aa04a'); fill(c, ox + 8, 0, 1, 5, '#5ab857'); fill(c, ox + 10, 1, 1, 4, '#4aa04a');
-  },
+  seed_moonmelon: (c, ox) => seedPacket(c, ox, '#6fc8b0'),
   moonmelon(c, ox) {
     disc(c, ox, 0, 8, 9, 6.6, '#2f6a5a');
     disc(c, ox, 0, 8, 9, 5.8, '#8fdcc8');
@@ -623,6 +606,7 @@ function seedPacket(c: Ctx, ox: number, color: string) {
 // ---------------------------------------------------------------- crops
 
 function drawCrop(c: Ctx, ox: number, id: CropId, stage: number, items: HTMLCanvasElement) {
+  // Only Moonmelon is drawn in code now; the other crops come from the Tiny Farm sheet.
   const leaf = '#4aa04a', leafHi = '#6cc45c', stem = '#3a8a3a';
   if (stage === 0) {
     fill(c, ox + 4, 10, 8, 3, '#5e3d24');
@@ -702,24 +686,34 @@ export function generateTextures(scene: Phaser.Scene): void {
   gloop.add('1', 0, S, 0, S, S);
   gloop.refresh();
 
+  // Crop sheet from the Tiny Farm pack: per row, growth frames in columns 0..n, seed bag in 7, produce in 8.
+  const sheet = scene.textures.get('tf_crops').getSourceImage() as HTMLImageElement;
+  const fromSheet = (c: Ctx, ox: number, col: number, row: number) => c.drawImage(sheet, col * S, row * S, S, S, ox, 0, S, S);
+
   const items = scene.textures.createCanvas('items', S * ITEM_ORDER.length, S)!;
   const ic = items.getContext();
   ITEM_ORDER.forEach((id, i) => {
-    ITEM_DRAW[id](ic, i * S);
+    const crop = Object.values(CROPS).find(c => c.sheetRow !== undefined && (c.produce === id || c.seed === id));
+    if (crop) fromSheet(ic, i * S, crop.seed === id ? 7 : 8, crop.sheetRow!);
+    else ITEM_DRAW[id]?.(ic, i * S);
     items.add(id, 0, i * S, 0, S, S);
   });
   items.refresh();
 
   const cropIds = Object.keys(CROPS) as CropId[];
-  const crops = scene.textures.createCanvas('crops', S * 4 * cropIds.length, S)!;
+  const frameCount = cropIds.reduce((n, id) => n + CROPS[id].frames, 0);
+  const crops = scene.textures.createCanvas('crops', S * frameCount, S)!;
   const cc = crops.getContext();
-  cropIds.forEach((id, ci) => {
-    for (let st = 0; st < 4; st++) {
-      const ox = (ci * 4 + st) * S;
-      drawCrop(cc, ox, id, st, items.getSourceImage() as HTMLCanvasElement);
-      crops.add(`${id}_${st}`, 0, ox, 0, S, S);
+  let slot = 0;
+  for (const id of cropIds) {
+    const def = CROPS[id];
+    for (let f = 0; f < def.frames; f++, slot++) {
+      const ox = slot * S;
+      if (def.sheetRow !== undefined) fromSheet(cc, ox, f, def.sheetRow);
+      else drawCrop(cc, ox, id, f, items.getSourceImage() as HTMLCanvasElement);
+      crops.add(`${id}_${f}`, 0, ox, 0, S, S);
     }
-  });
+  }
   crops.refresh();
 
   const uiTex = scene.textures.createCanvas('ui', S * 3, S)!;

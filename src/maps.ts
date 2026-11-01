@@ -32,6 +32,20 @@ export interface NpcDef {
   show?: () => boolean;
 }
 
+/** A sprite placed in the world, drawn with its bottom-centre at (x, y) unless origin says otherwise. */
+export interface Prop {
+  tex: string;
+  frame?: string;
+  x: number;
+  y: number;
+  origin?: [number, number];
+  /** Defaults to y, so things sort by their base. */
+  depth?: number;
+}
+
+export type CritterKind = 'chicken_red' | 'chicken_blonde' | 'chick' | 'cow';
+export interface Critter { kind: CritterKind; x: number; y: number }
+
 export type InteractKind = 'bed' | 'bin' | 'shop' | 'sign' | 'locked';
 
 export interface Interactable extends Point {
@@ -55,10 +69,12 @@ export interface MapDef {
   forage: Point[];
   /** Walkable tiles reachable from the spawn point. */
   open: Point[];
+  props: Prop[];
+  critters: Critter[];
 }
 
 /** Where you wake up each morning. */
-export const BED_SPAWN: Point = { x: 12, y: 5 };
+export const BED_SPAWN: Point = { x: 12, y: 6 };
 
 const solid = new Set(SOLID);
 
@@ -124,31 +140,57 @@ class Builder {
   }
 }
 
-function finish(b: Builder, def: Omit<MapDef, 'tiles' | 'w' | 'h' | 'open'>): MapDef {
-  return { ...def, tiles: b.t, w: b.w, h: b.h, open: b.reachable(def.spawn) };
+type MapInput = Omit<MapDef, 'tiles' | 'w' | 'h' | 'open' | 'props' | 'critters'> & { props?: Prop[]; critters?: Critter[] };
+
+function finish(b: Builder, def: MapInput): MapDef {
+  return { props: [], critters: [], ...def, tiles: b.t, w: b.w, h: b.h, open: b.reachable(def.spawn) };
 }
+
+/**
+ * A house from the Tiny Farm pack. Its 5x5-tile footprint becomes solid, except the door.
+ * 'home' has a front door in column 3; 'shop' has a wide barn door centred on column 2.
+ */
+function house(b: Builder, props: Prop[], kind: 'home' | 'shop', x0: number, yBottom: number, door: 'open' | 'locked') {
+  b.rect(x0, yBottom - 4, 5, 5, T.BLOCK);
+  const doorX = x0 + (kind === 'home' ? 3 : 2);
+  b.set(doorX, yBottom, door === 'open' ? T.GRASS : T.BLOCK);
+  props.push({ tex: 'tf_house', frame: kind, x: x0 * TILE_PX, y: (yBottom + 1) * TILE_PX, origin: [0, 1] });
+  return { x: doorX, y: yBottom };
+}
+
+const TILE_PX = 16;
+/** A prop standing on tile (x, y): bottom-centre of the tile. */
+const on = (tex: string, frame: string, x: number, y: number, dx = 0, dy = 0): Prop =>
+  ({ tex, frame, x: x * TILE_PX + 8 + dx, y: (y + 1) * TILE_PX + dy });
 
 function buildFarm(): MapDef {
   const rnd = mulberry32(11);
   const b = new Builder(40, 30, T.GRASS);
   b.border(T.TREE, 2);
-  b.building(3, 2, 7, 3, [1, 5]); // farmhouse, door at (6,5)
+  const props: Prop[] = [];
+  house(b, props, 'home', 3, 5, 'open'); // farmhouse, door at (6,5)
   b.rect(6, 6, 1, 9, T.PATH);
   b.rect(6, 14, 34, 2, T.PATH); // road east to town
   b.rect(19, 16, 2, 14, T.PATH); // road south to the woods
   b.set(8, 6, T.BIN);
+  props.push(on('tf_chest', 'closed', 8, 6, 0, -2));
   b.set(35, 13, T.SIGN);
   b.rect(29, 4, 5, 3, T.WATER);
   b.rect(30, 7, 3, 1, T.WATER);
   const field = (x: number, y: number) => x >= 8 && x <= 37 && y >= 16 && y <= 27;
   const free = (x: number, y: number) =>
     b.get(x, y) === T.GRASS && !field(x, y) && !(x <= 11 && y <= 8) &&
-    !b.near(x, y, 1, [T.PATH, T.WATER, T.BIN, T.SIGN, T.ROCK, T.BUSH]);
+    !b.near(x, y, 1, [T.PATH, T.WATER, T.BIN, T.SIGN, T.ROCK, T.BUSH, T.BLOCK]);
   b.scatter(T.ROCK, 6, rnd, free);
   b.scatter(T.BUSH, 8, rnd, free);
   b.scatter(T.FLOWER, 45, rnd, (x, y) => b.get(x, y) === T.GRASS);
   return finish(b, {
     id: 'farm', name: 'Thistle Farm', indoor: false, farmable: true,
+    props,
+    critters: [
+      { kind: 'chicken_red', x: 11, y: 8 }, { kind: 'chicken_blonde', x: 13, y: 9 },
+      { kind: 'chick', x: 12, y: 10 }, { kind: 'cow', x: 32, y: 10 },
+    ],
     spawn: { x: 6, y: 7 },
     warps: [
       { x: 6, y: 5, w: 1, h: 1, to: 'house', tx: 9, ty: 9, facing: 'up' },
@@ -168,16 +210,27 @@ function buildFarm(): MapDef {
 function buildHouse(): MapDef {
   const b = new Builder(20, 14, T.VOID);
   b.room();
-  b.set(12, 4, T.BED);
-  b.set(7, 4, T.SHELF);
-  b.set(7, 6, T.TABLE);
-  b.rect(9, 7, 2, 2, T.RUG);
+  const F = 'tf_interior';
+  for (const [x, y] of [[12, 4], [12, 5], [7, 4], [8, 4], [13, 4], [7, 7], [8, 7], [13, 9], [6, 9]]) b.set(x, y, T.BLOCK_FLOOR);
+  const props: Prop[] = [
+    { tex: F, frame: 'rug', x: 10.5 * TILE_PX, y: 10 * TILE_PX - 2, depth: 1 },
+    { tex: F, frame: 'window', x: 10 * TILE_PX + 8, y: 3 * TILE_PX + 14, depth: 1 },
+    { tex: F, frame: 'picture', x: 11 * TILE_PX + 12, y: 3 * TILE_PX + 12, depth: 1 },
+    { tex: F, frame: 'clock', x: 5.5 * TILE_PX + 8, y: 3 * TILE_PX + 12, depth: 1 },
+    { tex: F, frame: 'fireplace', x: 8 * TILE_PX, y: 5 * TILE_PX },
+    on(F, 'bed', 12, 5),
+    on(F, 'drawer', 13, 4),
+    { tex: F, frame: 'table', x: 8 * TILE_PX, y: 8 * TILE_PX + 2 },
+    on(F, 'plant_tree', 13, 9),
+    on(F, 'plant_red', 6, 9),
+  ];
   return finish(b, {
     id: 'house', name: 'Your House', indoor: true, farmable: false,
+    props,
     spawn: { x: 9, y: 9 },
     warps: [{ x: 9, y: 10, w: 1, h: 1, to: 'farm', tx: 6, ty: 6, facing: 'down' }],
     npcs: [],
-    interact: [{ x: 12, y: 4, kind: 'bed' }],
+    interact: [{ x: 12, y: 4, kind: 'bed' }, { x: 12, y: 5, kind: 'bed' }],
     slimes: 0,
     forage: [],
   });
@@ -190,11 +243,12 @@ function buildTown(): MapDef {
   b.rect(0, 14, 34, 2, T.PATH);
   b.rect(14, 9, 12, 10, T.PATH); // plaza
   b.rect(19, 12, 2, 2, T.WATER); // fountain
-  b.building(16, 3, 8, 4, [1, 6]); // shop, door at (20,6)
+  const props: Prop[] = [];
+  house(b, props, 'shop', 18, 6, 'open'); // Bram's shop, door at (20,6)
   b.rect(20, 7, 1, 2, T.PATH);
-  b.building(4, 6, 6, 2, [1, 4], T.DOOR_LOCKED); // door (6,9)
+  house(b, props, 'home', 3, 9, 'locked'); // door (6,9)
   b.rect(6, 10, 1, 4, T.PATH);
-  b.building(28, 6, 6, 4, [1], T.DOOR_LOCKED); // door (32,9)
+  house(b, props, 'home', 29, 9, 'locked'); // door (32,9)
   b.rect(32, 10, 1, 4, T.PATH);
   b.rect(4, 19, 7, 1, T.FENCE);
   b.rect(4, 23, 7, 1, T.FENCE);
@@ -204,12 +258,13 @@ function buildTown(): MapDef {
   b.set(22, 7, T.SIGN);
   b.set(3, 13, T.SIGN);
   const free = (x: number, y: number) =>
-    b.get(x, y) === T.GRASS && !b.near(x, y, 1, [T.PATH, T.WALL, T.WINDOW, T.FENCE, T.SIGN, T.TREE, T.DOOR_LOCKED]);
+    b.get(x, y) === T.GRASS && !b.near(x, y, 1, [T.PATH, T.WALL, T.WINDOW, T.FENCE, T.SIGN, T.TREE, T.DOOR_LOCKED, T.BLOCK]);
   b.scatter(T.TREE, 10, rnd, free);
   b.scatter(T.BUSH, 6, rnd, free);
   b.scatter(T.FLOWER, 50, rnd, (x, y) => b.get(x, y) === T.GRASS);
   return finish(b, {
     id: 'town', name: 'Hollowbrook', indoor: false, farmable: false,
+    props,
     spawn: { x: 2, y: 14 },
     warps: [
       { x: 0, y: 14, w: 1, h: 2, to: 'farm', tx: 37, ty: 14, facing: 'left' },
@@ -309,6 +364,9 @@ function buildForest(): MapDef {
   for (let i = 0; i < 9 && spots.length; i++) {
     forage.push(spots.splice(Math.floor(rnd() * spots.length), 1)[0]);
   }
+  // Use the dark-floor versions of trees, bushes and rocks in the woods.
+  const dark: Record<number, number> = { [T.TREE]: T.DARK_TREE, [T.BUSH]: T.DARK_BUSH, [T.ROCK]: T.DARK_ROCK };
+  b.t = b.t.map(row => row.map(t => dark[t] ?? t));
   return finish(b, {
     id: 'forest', name: 'Mossy Woods', indoor: false, farmable: false,
     spawn,

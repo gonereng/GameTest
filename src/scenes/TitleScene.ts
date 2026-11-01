@@ -22,7 +22,8 @@ export class TitleScene extends Phaser.Scene {
       const x = rnd.between(0, 19) * 48, y = rnd.between(0, 13) * 48;
       const tile = rnd.pick([T.FLOWER, T.FLOWER, T.TREE, T.BUSH]);
       if (y > 120 && y < 520 && x > 120 && x < 840) continue;
-      this.add.image(x, y, 'tiles', `t${tile}`).setOrigin(0).setScale(S);
+      if (tile === T.TREE) this.add.image(x + 24, y + 48, 'tf_maple', rnd.pick(['big', 'medium'])).setOrigin(0.5, 1).setScale(S).setDepth(y);
+      else this.add.image(x, y, 'tiles', `t${tile}`).setOrigin(0).setScale(S);
     }
     this.add.rectangle(0, 0, GAME_W, GAME_H, 0x0a0805, 0.35).setOrigin(0);
 
@@ -34,7 +35,7 @@ export class TitleScene extends Phaser.Scene {
       fontFamily: 'monospace', fontSize: '20px', color: '#fff', stroke: '#2a1a0a', strokeThickness: 5,
     }).setOrigin(0.5);
 
-    const hero = this.add.sprite(GAME_W / 2 - 70, 300, 'player', 'down_0').setScale(4).play('player_down');
+    const hero = this.add.sprite(GAME_W / 2 - 70, 290, 'farmer_idle', 0).setScale(4).play('farmer_down');
     const slime = this.add.sprite(GAME_W / 2 + 70, 304, 'slime', '0').setScale(4).play('slime_idle');
     this.tweens.add({ targets: hero, y: 296, yoyo: true, repeat: -1, duration: 600, ease: 'Sine.inOut' });
     this.tweens.add({ targets: slime, x: slime.x + 10, yoyo: true, repeat: -1, duration: 900, ease: 'Sine.inOut' });
@@ -53,6 +54,9 @@ export class TitleScene extends Phaser.Scene {
       this.texts.push(t);
     });
 
+    this.add.text(GAME_W - 10, GAME_H - 8, 'Art: Tiny Farm RPG by Maeve Devs + drawn-in-code', {
+      fontFamily: 'monospace', fontSize: '12px', color: '#f4e4b0', stroke: '#2a1a0a', strokeThickness: 3,
+    }).setOrigin(1, 1);
     this.add.text(GAME_W / 2, GAME_H - 46, isTouchDevice()
       ? 'Tap to start. Drag on the left to move, USE and TALK on the right, tap the hotbar to pick items.'
       : 'Move: WASD / Arrows   Use item: Space   Talk/Interact: E   Items: 1-0, Q, wheel   Menu: Esc', {

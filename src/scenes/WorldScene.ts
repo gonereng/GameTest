@@ -1,16 +1,17 @@
 import Phaser from 'phaser';
 import { TILE, ZOOM } from '../config';
 import { BED_SPAWN, getMap, type Facing, type Interactable, type MapDef, type MapId, type NpcDef, type Point, type Warp } from '../maps';
-import { T, SOLID } from '../tiles';
+import { T, SOLID, TREE_TILES } from '../tiles';
 import { CROPS, ITEMS, type ItemId } from '../items';
 import {
-  DAY_END, HOTBAR_SIZE, addItem, advanceDay, cropStage, formatTime, isMature, removeAt, runtime, save, soilKey, state,
+  DAY_END, HOTBAR_SIZE, addItem, advanceDay, cropFrame, formatTime, isMature, removeAt, runtime, save, soilKey, state,
 } from '../state';
 import { modal, ui } from '../bus';
 import { Slime } from '../slime';
 import { Boss } from '../boss';
 import { Story, flag, goalText, wearingSuit } from '../quest';
 import { consumeTouch, touch } from '../touch';
+import { Critter, CRITTER_LINES } from '../critters';
 import { CHARACTERS } from '../textures';
 
 type Body = Phaser.Physics.Arcade.Body;
@@ -65,6 +66,8 @@ export class WorldScene extends Phaser.Scene {
   private keys!: Record<KeyName, Phaser.Input.Keyboard.Key>;
   private facing: Facing = 'down';
   private slimes: Slime[] = [];
+  private critters: Critter[] = [];
+  private currentSkin: 'farmer' | 'suit' = 'farmer';
   private pickups: Pickup[] = [];
   private cropSprites = new Map<string, Phaser.GameObjects.Image>();
   private invulnUntil = 0;
@@ -80,6 +83,7 @@ export class WorldScene extends Phaser.Scene {
     this.facing = this.args.facing ?? 'down';
     this.npcs = [];
     this.slimes = [];
+    this.critters = [];
     this.pickups = [];
     this.cropSprites = new Map();
     this.lockedUntil = 0;
@@ -105,12 +109,16 @@ export class WorldScene extends Phaser.Scene {
 
     // Player
     const spawn = this.args.spawn ?? def.spawn;
-    this.player = this.physics.add.sprite((spawn.x + 0.5) * TILE, (spawn.y + 0.5) * TILE - 4, 'player', 'down_0');
-    this.pbody().setSize(10, 6).setOffset(3, 10);
+    this.currentSkin = this.skin();
+    this.player = this.physics.add.sprite((spawn.x + 0.5) * TILE, (spawn.y + 0.5) * TILE - 7,
+      this.currentSkin === 'suit' ? 'suit' : 'farmer_idle', this.currentSkin === 'suit' ? 'down_0' : 0);
+    if (this.currentSkin === 'suit') this.player.y += 3;
+    this.applySkinBody();
     this.player.setCollideWorldBounds(true);
     this.physics.add.collider(this.player, this.layer);
     this.setIdleFrame();
 
+    this.placeScenery();
     if (def.farmable) this.buildFarm();
     this.spawnNpcs();
     this.spawnSlimes(spawn);
@@ -242,7 +250,7 @@ export class WorldScene extends Phaser.Scene {
         'The last farmer packed up years ago, when slimes started creeping out of Mossy Woods.',
         "Now the land is yours. Grow crops, earn some gold, and teach those slimes some manners.",
         ...CONTROLS,
-        'Tip: till grass with the Hoe, plant Carrot Seeds, and water them. Ship crops in the bin outside.',
+        'Tip: till grass with the Hoe, plant Strawberry Seeds, and water them. Ship crops in the bin outside.',
       ],
     });
   }
@@ -287,10 +295,15 @@ export class WorldScene extends Phaser.Scene {
     }
     this.updateFacing(vx, vy);
     const skin = this.skin();
-    if (this.player.texture.key !== skin) this.player.setTexture(skin, this.player.frame.name);
+    if (this.currentSkin !== skin) {
+      this.currentSkin = skin;
+      this.player.anims.stop();
+      this.player.setTexture(skin === 'suit' ? 'suit' : 'farmer_idle', skin === 'suit' ? 'down_0' : 0);
+      this.applySkinBody(true);
+    }
     if (vx || vy) {
       this.player.anims.play(`${skin}_${this.facing === 'left' || this.facing === 'right' ? 'side' : this.facing}`, true);
-      this.player.setFlipX(this.facing === 'left');
+      this.player.setFlipX(this.flipPlayer());
     } else {
       this.setIdleFrame();
     }
@@ -305,10 +318,11 @@ export class WorldScene extends Phaser.Scene {
 
     const disguised = wearingSuit();
     for (const s of this.slimes) s.think(now, this.player, paused, disguised);
+    for (const c of this.critters) c.think(now, paused);
     this.story.update(now, paused);
     this.checkPickups();
 
-    this.player.setDepth(this.player.y + 8);
+    this.player.setDepth(this.pbody().bottom);
     this.player.setAlpha(now < this.invulnUntil && Math.floor(now / 90) % 2 ? 0.35 : 1);
 
     if (!paused) this.checkWarps();
@@ -338,15 +352,59 @@ export class WorldScene extends Phaser.Scene {
     else if (this.facing !== h && this.facing !== v) this.facing = v;
   }
 
-  private skin(): string {
-    return wearingSuit() ? 'suit' : 'player';
+  private skin(): 'farmer' | 'suit' {
+    return wearingSuit() ? 'suit' : 'farmer';
+  }
+
+  /** The farmer is a 32x32 frame and the slime suit 16x16, so the feet sit in different places. */
+  private applySkinBody(keepFeet = false): void {
+    const b = this.pbody();
+    const feet = b.bottom;
+    if (this.skin() === 'suit') b.setSize(10, 6).setOffset(3, 10);
+    else b.setSize(10, 6).setOffset(11, 20);
+    if (keepFeet) {
+      // Keep the feet where they were, so swapping skins doesn't push the player into a wall.
+      this.player.y += feet - (this.player.y - this.player.displayOriginY + b.offset.y + b.height);
+      b.updateFromGameObject();
+    }
+  }
+
+  /** The pack's sideways frames face left; the slime suit's face right. */
+  private flipPlayer(): boolean {
+    return this.skin() === 'farmer' ? this.facing === 'right' : this.facing === 'left';
   }
 
   private setIdleFrame(): void {
     const dir = this.facing === 'left' || this.facing === 'right' ? 'side' : this.facing;
+    this.player.setFlipX(this.flipPlayer());
+    if (this.skin() === 'farmer') {
+      this.player.anims.play(`farmer_idle_${dir}`, true);
+      return;
+    }
     this.player.anims.stop();
     this.player.setFrame(`${dir}_0`);
-    this.player.setFlipX(this.facing === 'left');
+  }
+
+  /** Pack sprites: houses, furniture, the shipping chest, trees and farm animals. */
+  private placeScenery(): void {
+    for (const p of this.def.props) {
+      const [ox, oy] = p.origin ?? [0.5, 1];
+      this.add.image(p.x, p.y, p.tex, p.frame).setOrigin(ox, oy).setDepth(p.depth ?? p.y);
+    }
+    // Every tree tile gets a maple sprite. Its base sits on the tile, and its canopy hangs over the tile above,
+    // so you can walk behind trees.
+    for (let y = 0; y < this.def.h; y++)
+      for (let x = 0; x < this.def.w; x++) {
+        if (!TREE_TILES.includes(this.def.tiles[y][x])) continue;
+        const big = ((x * 73856093) ^ (y * 19349663)) % 10 < 3;
+        const base = (y + 1) * TILE - 1;
+        this.add.image((x + 0.5) * TILE, base + 1, 'tf_maple', big ? 'big' : 'medium').setOrigin(0.5, 1).setDepth(base);
+      }
+    for (const c of this.def.critters) {
+      const critter = new Critter(this, (c.x + 0.5) * TILE, (c.y + 0.5) * TILE, c.kind);
+      this.physics.add.collider(critter, this.layer);
+      this.critters.push(critter);
+    }
   }
 
   private cycleItem(step: number): void {
@@ -399,6 +457,12 @@ export class WorldScene extends Phaser.Scene {
         this.talk(n);
         return true;
       }
+    }
+    const critter = this.critters.find(c => Phaser.Math.Distance.Between(t.px, t.py, c.x, (c.body as Body).center.y) < 14);
+    if (critter) {
+      const lines = CRITTER_LINES[critter.kind];
+      ui.dialogue({ lines: lines[critter.talks++ % lines.length] });
+      return true;
     }
     if (this.story.interactAt(t.tx, t.ty, fromUse)) return true;
     const it = this.def.interact.find(i => i.x === t.tx && i.y === t.ty);
@@ -560,7 +624,7 @@ export class WorldScene extends Phaser.Scene {
       this.cropSprites.delete(key);
       return;
     }
-    const frame = `${soil.crop.id}_${cropStage(soil)}`;
+    const frame = `${soil.crop.id}_${cropFrame(soil)}`;
     if (!spr) {
       spr = this.add.image((x + 0.5) * TILE, (y + 0.5) * TILE - 2, 'crops', frame).setDepth((y + 1) * TILE - 3);
       this.cropSprites.set(key, spr);
