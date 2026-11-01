@@ -1,7 +1,10 @@
 import { T, SOLID } from './tiles';
 import { mulberry32 } from './rng';
+import { state } from './state';
 
-export type MapId = 'farm' | 'house' | 'town' | 'shop' | 'forest';
+const flag = (f: string) => !!state.quest.flags[f];
+
+export type MapId = 'farm' | 'house' | 'town' | 'shop' | 'forest' | 'burrow';
 export type Facing = 'down' | 'up' | 'left' | 'right';
 
 export interface Point { x: number; y: number }
@@ -9,6 +12,8 @@ export interface Point { x: number; y: number }
 export interface Warp {
   x: number; y: number; w: number; h: number;
   to: MapId; tx: number; ty: number; facing: Facing;
+  /** Quest flag that must be set for this warp to work. */
+  requires?: string;
 }
 
 export interface NpcDef {
@@ -21,6 +26,10 @@ export interface NpcDef {
   intro: string[];
   /** Rotating conversations. {slimes} and {day} are filled in. */
   chat: string[][];
+  /** Drawn as a slime with this tint instead of a person. */
+  slime?: number;
+  /** Only present while this returns true. */
+  show?: () => boolean;
 }
 
 export type InteractKind = 'bed' | 'bin' | 'shop' | 'sign' | 'locked';
@@ -209,6 +218,7 @@ function buildTown(): MapDef {
     npcs: [
       {
         id: 'orla', name: 'Mayor Orla', sprite: 'orla', x: 17, y: 16, facing: 'down',
+        show: () => !flag('unmasked') || (flag('launched') && flag('pardoned')),
         intro: [
           'Oh! You must be the new keeper of Thistle Farm.',
           "I'm Orla, mayor of Hollowbrook. Welcome to the valley!",
@@ -235,6 +245,12 @@ function buildTown(): MapDef {
           ['Day {day} already? Time goes fast when you are a kid.'],
         ],
       },
+      ...([['ollie', 'Ollie', 16, 0xf0a0c0], ['rudy', 'Rudy', 17, 0xa0c8f0], ['lars', 'Lars', 18, 0xf0d890]] as const).map(
+        ([id, name, x, tint]): NpcDef => ({
+          id, name, sprite: 'slime', x, y: 16, facing: 'down', slime: tint, intro: [], chat: [],
+          show: () => flag('pardoned') && !flag('launched'),
+        }),
+      ),
     ],
     interact: [
       { x: 22, y: 7, kind: 'sign', lines: ["Bram's Seeds & Supplies", 'Open every day, rain or slime.'] },
@@ -283,6 +299,9 @@ function buildForest(): MapDef {
   b.scatter(T.BUSH, 25, rnd, free);
   b.scatter(T.ROCK, 8, rnd, free);
   b.set(22, 3, T.SIGN);
+  // A suspicious circle of bushes past the bridge. The centre becomes a hole later.
+  b.rect(30, 16, 7, 9, T.DARK_GRASS);
+  for (let y = 19; y <= 21; y++) for (let x = 32; x <= 34; x++) b.set(x, y, T.BUSH);
   const spawn = { x: 19, y: 2 };
   const open = b.reachable(spawn);
   const forage: Point[] = [];
@@ -293,7 +312,10 @@ function buildForest(): MapDef {
   return finish(b, {
     id: 'forest', name: 'Mossy Woods', indoor: false, farmable: false,
     spawn,
-    warps: [{ x: 19, y: 0, w: 2, h: 1, to: 'farm', tx: 19, ty: 27, facing: 'up' }],
+    warps: [
+      { x: 19, y: 0, w: 2, h: 1, to: 'farm', tx: 19, ty: 27, facing: 'up' },
+      { x: 33, y: 20, w: 1, h: 1, to: 'burrow', tx: 9, ty: 11, facing: 'up', requires: 'bush' },
+    ],
     npcs: [],
     interact: [{ x: 22, y: 3, kind: 'sign', lines: ['Mossy Woods.', 'Berries and mushrooms grow back every morning. So do the slimes.'] }],
     slimes: 7,
@@ -301,8 +323,46 @@ function buildForest(): MapDef {
   });
 }
 
+/** Positions used by the story code. */
+export const BURROW = { door: { x: 9, y: 7 }, librarian: { x: 9, y: 4 }, librarianMoved: { x: 10, y: 3 }, pedestal: { x: 9, y: 2 } };
+
+function buildBurrow(): MapDef {
+  const b = new Builder(20, 14, T.VOID);
+  b.rect(3, 1, 14, 12, T.ROOT_WALL);
+  b.rect(4, 2, 12, 10, T.JELLY_FLOOR);
+  b.rect(4, 7, 12, 1, T.ROOT_WALL); // divider
+  b.set(9, 7, T.JELLY_DOOR);
+  b.rect(4, 2, 12, 1, T.SHELF); // archive shelves
+  b.set(9, 2, T.PEDESTAL);
+  b.rect(4, 4, 5, 1, T.SHELF);
+  b.rect(10, 4, 6, 1, T.SHELF);
+  b.set(9, 12, T.LADDER);
+  const slime = (id: string, x: number, y: number, tint: number): NpcDef => ({
+    id, name: 'Slime', sprite: 'slime', x, y, facing: 'down', slime: tint, intro: [], chat: [],
+  });
+  return finish(b, {
+    id: 'burrow', name: 'The Slime Burrow', indoor: true, farmable: false,
+    spawn: { x: 9, y: 11 },
+    warps: [{ x: 9, y: 12, w: 1, h: 1, to: 'forest', tx: 33, ty: 22, facing: 'down' }],
+    npcs: [
+      slime('burrow_union', 5, 9, 0xffffff),
+      slime('burrow_hum', 14, 9, 0xd0f0ff),
+      slime('burrow_gossip', 6, 11, 0xffe0f0),
+      slime('burrow_shush', 7, 11, 0xe0ffd0),
+      slime('burrow_hair', 13, 11, 0xfff0c0),
+      {
+        id: 'librarian', name: 'Slime Librarian', sprite: 'librarian', x: BURROW.librarian.x, y: BURROW.librarian.y,
+        facing: 'down', intro: [], chat: [],
+      },
+    ],
+    interact: [],
+    slimes: 0,
+    forage: [],
+  });
+}
+
 const builders: Record<MapId, () => MapDef> = {
-  farm: buildFarm, house: buildHouse, town: buildTown, shop: buildShop, forest: buildForest,
+  farm: buildFarm, house: buildHouse, town: buildTown, shop: buildShop, forest: buildForest, burrow: buildBurrow,
 };
 const cache = new Map<MapId, MapDef>();
 

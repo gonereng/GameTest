@@ -223,7 +223,10 @@ or **keep playing in eternal night**. Crops still grow, but every NPC whispers.
 
 ## Implementation notes
 
-What the current code needs, roughly in build order:
+**Status: implemented** in `src/quest.ts` (story logic), `src/boss.ts` (the boss) and the new
+`burrow` map in `src/maps.ts`. Differences from the design above: the spoon costs 300g, and the
+Turnipult fight starts at 10 PM on whichever night it's built (it must still be launched by the
+deadline). The original checklist, for reference:
 
 - **Quest state:** add `quest: { step, flags }` to `GameState` (saved with everything else), plus
   a small quest log in the Esc menu showing the current goal.

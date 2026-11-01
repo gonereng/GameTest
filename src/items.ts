@@ -3,7 +3,7 @@ export type ItemId =
   | 'hoe' | 'can' | 'sword'
   | 'seed_carrot' | 'seed_turnip' | 'seed_moonmelon'
   | 'carrot' | 'turnip' | 'moonmelon'
-  | 'gel' | 'berry' | 'mushroom' | 'bread';
+  | 'gel' | 'berry' | 'mushroom' | 'bread' | 'suit';
 
 export type ItemKind = 'tool' | 'seed' | 'produce' | 'material' | 'forage' | 'food';
 
@@ -34,6 +34,7 @@ export const ITEMS: Record<ItemId, ItemDef> = {
   gel: { id: 'gel', name: 'Slime Gel', kind: 'material', sell: 15, desc: 'Wobbly. Somebody buys this stuff.' },
   berry: { id: 'berry', name: 'Wild Berries', kind: 'forage', sell: 10, energy: 10, desc: 'Found in Mossy Woods.' },
   mushroom: { id: 'mushroom', name: 'Woodcap', kind: 'forage', sell: 25, energy: 15, heal: 1, desc: 'A sturdy forest mushroom.' },
+  suit: { id: 'suit', name: 'Slime Suit', kind: 'tool', desc: 'Hold it to become a slime. Mostly.' },
   bread: { id: 'bread', name: 'Fresh Bread', kind: 'food', price: 40, energy: 45, heal: 1, desc: 'Restores lots of energy.' },
 };
 

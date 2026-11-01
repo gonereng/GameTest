@@ -3,6 +3,7 @@ import { GAME_H, GAME_W } from '../config';
 import { ITEMS, type ItemId } from '../items';
 import { HOTBAR_SIZE, addItem, formatTime, runtime, state } from '../state';
 import { bus, modal, type DialogueOpts } from '../bus';
+import { buyStoryItem, deadlineText, flag, goalText, moonMissing, storyShopEntries, type StoryShopEntry } from '../quest';
 
 const FONT = 'monospace';
 const PANEL = 0x2a1b10;
@@ -10,10 +11,12 @@ const BORDER = 0xe8c88a;
 const SLOT = 56;
 const SLOT_GAP = 4;
 const MAX_HEARTS = 10;
+/** Row height in the shop list. */
+const ROW = 44;
 
-interface ShopEntry { id?: ItemId; special?: 'heart'; name: string; price: number; desc: string }
+interface ShopEntry { id?: ItemId; special?: 'heart'; story?: StoryShopEntry; name: string; price: number; desc: string }
 
-const SHOP: ShopEntry[] = [
+const BASE_SHOP: ShopEntry[] = [
   ...(['seed_carrot', 'seed_turnip', 'seed_moonmelon', 'bread'] as ItemId[]).map(id => ({
     id, name: ITEMS[id].name, price: ITEMS[id].price!, desc: ITEMS[id].desc,
   })),
@@ -53,6 +56,11 @@ export class UIScene extends Phaser.Scene {
   private lastItemId: string | null = null;
   private locText!: Phaser.GameObjects.Text;
   private toasts: Phaser.GameObjects.Text[] = [];
+  private moon!: Phaser.GameObjects.Image;
+  private goalGfx!: Phaser.GameObjects.Graphics;
+  private goalText!: Phaser.GameObjects.Text;
+  private lastGoal = '';
+  private entries: ShopEntry[] = [];
 
   private dlg?: {
     opts: DialogueOpts; line: number; choice: number;
@@ -82,6 +90,10 @@ export class UIScene extends Phaser.Scene {
     modal.open = false;
 
     this.night = this.add.rectangle(0, 0, GAME_W, GAME_H, 0x0a1030, 1).setOrigin(0).setAlpha(0);
+    this.moon = this.add.image(GAME_W / 2 - 150, 58, 'moon', 'plain').setScale(2.5).setAlpha(0);
+    this.goalGfx = this.add.graphics();
+    this.goalText = this.add.text(GAME_W - 24, 112, '', { ...textStyle(15, '#f4e4b0'), align: 'right', wordWrap: { width: 300 }, lineSpacing: 3 }).setOrigin(1, 0);
+    this.lastGoal = '';
 
     // Top-left: hearts and gold.
     const g = this.add.graphics();
@@ -133,7 +145,15 @@ export class UIScene extends Phaser.Scene {
   }
 
   update(): void {
-    this.night.setAlpha(runtime.indoor ? 0 : nightAlpha(state.minutes));
+    // While the moon is missing, nights are much darker. In the eternal night it's always dark.
+    let dark = nightAlpha(state.minutes);
+    if (moonMissing()) dark = Math.min(0.78, dark * 1.6);
+    if (flag('eternal') && !flag('launched')) dark = 0.62;
+    this.night.setAlpha(runtime.indoor ? 0 : dark);
+    const moonVisible = !runtime.indoor && !moonMissing();
+    this.moon.setFrame(flag('launched') ? 'carrot' : 'plain');
+    this.moon.setAlpha(moonVisible ? Math.min(1, Math.max(0, (dark - 0.12) * 4)) : 0);
+    this.updateGoal();
 
     const shown = Math.min(state.maxHp, MAX_HEARTS);
     if (this.heartCount !== shown) {
@@ -176,6 +196,21 @@ export class UIScene extends Phaser.Scene {
     }
   }
 
+  private updateGoal(): void {
+    const goal = goalText();
+    const deadline = deadlineText();
+    const text = goal ? `${goal}${deadline ? `\n${deadline}` : ''}` : '';
+    if (text === this.lastGoal) return;
+    this.lastGoal = text;
+    this.goalText.setText(text);
+    this.goalGfx.clear();
+    if (!text) return;
+    const w = this.goalText.width + 24, h = this.goalText.height + 16;
+    this.goalGfx.fillStyle(PANEL, 0.75).fillRoundedRect(GAME_W - 12 - w, 104, w, h, 8);
+    this.goalGfx.lineStyle(2, 0x9fc8ff, 1).strokeRoundedRect(GAME_W - 12 - w, 104, w, h, 8);
+    this.flash(this.itemName, 'New goal!', 900);
+  }
+
   private drawHotbar(): void {
     const g = this.hotbarGfx;
     const x0 = this.hotbarX();
@@ -215,7 +250,7 @@ export class UIScene extends Phaser.Scene {
   }
 
   private layoutToasts(): void {
-    this.toasts.forEach((t, i) => t.setY(118 + i * 30));
+    this.toasts.forEach((t, i) => t.setY(200 + i * 30));
   }
 
   // ------------------------------------------------------------------ dialogue
@@ -301,8 +336,17 @@ export class UIScene extends Phaser.Scene {
 
   // ------------------------------------------------------------------ shop
 
+  private shopRect() {
+    const w = 600, h = 170 + this.entries.length * ROW;
+    return { w, h, x: (GAME_W - w) / 2, y: Math.max(12, (GAME_H - h) / 2 - 40) };
+  }
+
   private openShop(): void {
-    const w = 600, h = 420, x = (GAME_W - w) / 2, y = (GAME_H - h) / 2 - 40;
+    this.entries = [
+      ...storyShopEntries().map(story => ({ story, name: story.name, price: story.price, desc: story.desc })),
+      ...BASE_SHOP,
+    ];
+    const { w, h, x, y } = this.shopRect();
     const root = this.add.container(0, 0).setDepth(90);
     const g = this.add.graphics();
     panel(g, x, y, w, h, 0.96);
@@ -310,12 +354,16 @@ export class UIScene extends Phaser.Scene {
     root.add([g, sel, this.add.text(x + w / 2, y + 30, "Bram's Seeds & Supplies", textStyle(26, '#ffe27a')).setOrigin(0.5)]);
     const rows: Phaser.GameObjects.Text[] = [];
     const prices: Phaser.GameObjects.Text[] = [];
-    SHOP.forEach((e, i) => {
-      const ry = y + 78 + i * 50;
-      const icon = e.id ? this.add.image(x + 50, ry, 'items', e.id) : this.add.image(x + 50, ry, 'ui', 'heart');
-      icon.setScale(2.4);
+    this.entries.forEach((e, i) => {
+      const ry = y + 78 + i * ROW;
+      const icon = e.id ? this.add.image(x + 50, ry, 'items', e.id)
+        : e.story?.key === 'suit' ? this.add.image(x + 50, ry, 'items', 'suit')
+        : e.story ? this.add.image(x + 50, ry, 'turnipult').setScale(0.4)
+        : this.add.image(x + 50, ry, 'ui', 'heart');
+      if (!e.story || e.story.key === 'suit') icon.setScale(2.4);
+      else icon.setScale(1.1);
       const t = this.add.text(x + 86, ry, e.name, textStyle(22)).setOrigin(0, 0.5);
-      const p = this.add.text(x + w - 40, ry, `${e.price}g`, textStyle(22, '#ffe27a')).setOrigin(1, 0.5);
+      const p = this.add.text(x + w - 40, ry, `${e.price}g${e.story?.gel ? ` +${e.story.gel} gel` : ''}`, textStyle(22, '#ffe27a')).setOrigin(1, 0.5);
       for (const o of [t, p]) {
         o.setInteractive({ useHandCursor: true });
         o.on('pointerover', () => { if (this.shop) { this.shop.cursor = i; this.renderShop(); } });
@@ -337,23 +385,32 @@ export class UIScene extends Phaser.Scene {
 
   private renderShop(): void {
     const s = this.shop!;
-    const w = 600, x = (GAME_W - w) / 2, y = (GAME_H - 420) / 2 - 40;
+    const { w, x, y } = this.shopRect();
     s.sel.clear();
-    s.sel.fillStyle(0x5a3a20, 1).fillRoundedRect(x + 18, y + 78 + s.cursor * 50 - 22, w - 36, 44, 8);
-    s.sel.lineStyle(2, 0xffe27a, 1).strokeRoundedRect(x + 18, y + 78 + s.cursor * 50 - 22, w - 36, 44, 8);
-    SHOP.forEach((e, i) => {
+    s.sel.fillStyle(0x5a3a20, 1).fillRoundedRect(x + 18, y + 78 + s.cursor * ROW - 20, w - 36, 40, 8);
+    s.sel.lineStyle(2, 0xffe27a, 1).strokeRoundedRect(x + 18, y + 78 + s.cursor * ROW - 20, w - 36, 40, 8);
+    this.entries.forEach((e, i) => {
       const afford = state.gold >= e.price;
       s.prices[i].setColor(afford ? '#ffe27a' : '#b06050');
       s.rows[i].setColor(i === s.cursor ? '#ffffff' : '#e8dcc0');
     });
-    const e = SHOP[s.cursor];
+    const e = this.entries[s.cursor];
     s.desc.setText(e.special === 'heart' && state.maxHp >= MAX_HEARTS ? 'You already have as many hearts as you can carry.' : e.desc);
     s.gold.setText(`Your gold: ${state.gold}g`);
   }
 
   private buy(): void {
     const s = this.shop!;
-    const e = SHOP[s.cursor];
+    const e = this.entries[s.cursor];
+    if (e.story) {
+      const err = buyStoryItem(e.story);
+      if (err) { this.toast(err); return; }
+      this.toast(`Bought ${e.name}.`);
+      // Story items are one-offs: rebuild the list without it.
+      this.closeShop();
+      this.openShop();
+      return;
+    }
     if (state.gold < e.price) { this.toast('Not enough gold.'); return; }
     if (e.special === 'heart') {
       if (state.maxHp >= MAX_HEARTS) { this.toast('You already have the most hearts possible.'); return; }
@@ -397,8 +454,9 @@ export class UIScene extends Phaser.Scene {
       return;
     }
     if (this.shop) {
-      if (up) { this.shop.cursor = (this.shop.cursor + SHOP.length - 1) % SHOP.length; this.renderShop(); }
-      else if (down) { this.shop.cursor = (this.shop.cursor + 1) % SHOP.length; this.renderShop(); }
+      const n = this.entries.length;
+      if (up) { this.shop.cursor = (this.shop.cursor + n - 1) % n; this.renderShop(); }
+      else if (down) { this.shop.cursor = (this.shop.cursor + 1) % n; this.renderShop(); }
       else if (confirm) this.buy();
       else if (cancel) this.closeShop();
     }

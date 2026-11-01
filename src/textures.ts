@@ -231,7 +231,179 @@ function drawTile(c: Ctx, i: number, r: () => number) {
       fill(c, ox + 12, 12, 2, 3, '#4e311b');
       fill(c, ox + 6, 4, 4, 3, '#efe8da');
       break;
+    case T.CRATER:
+      fill(c, ox, 0, S, S, '#5a3c22');
+      speckle(c, ox, 0, ['#4a301a', '#6e4a2a', '#3a2614'], 40, r);
+      speckle(c, ox, 0, ['#e8e2b8'], 4, r);
+      break;
+    case T.HOLE:
+      darkGrass(c, ox, r);
+      disc(c, ox, 0, 8, 8.5, 6.5, '#2a1a0e');
+      disc(c, ox, 0, 8, 9, 5.2, '#0a0604');
+      px(c, ox + 6, 12, '#6ad06a'); px(c, ox + 10, 11, '#6ad06a');
+      break;
+    case T.JELLY_FLOOR:
+      fill(c, ox, 0, S, S, '#2e5a3a');
+      speckle(c, ox, 0, ['#356a42', '#28503a', '#3e7a4c'], 30, r);
+      disc(c, ox, 0, 4 + r() * 8, 4 + r() * 8, 1.6, '#4a9a5a');
+      break;
+    case T.ROOT_WALL:
+      fill(c, ox, 0, S, S, '#4a3220');
+      speckle(c, ox, 0, ['#3a2616', '#5a3e28'], 30, r);
+      for (const [x0, y0, len] of [[1, 3, 9], [6, 9, 8], [2, 13, 6]]) {
+        for (let i = 0; i < len; i++) px(c, ox + x0 + i, y0 + Math.round(Math.sin(i / 1.5)), '#8a6a3a');
+      }
+      break;
+    case T.JELLY_DOOR:
+      fill(c, ox, 0, S, S, '#4a3220');
+      fill(c, ox + 1, 0, 14, S, '#3a9a4a');
+      fill(c, ox + 2, 1, 12, 14, '#6ad06a');
+      fill(c, ox + 4, 3, 2, 6, '#b8f0b8');
+      fill(c, ox + 1, 15, 14, 1, '#2a7a3a');
+      break;
+    case T.PEDESTAL:
+      fill(c, ox, 0, S, S, '#2e5a3a');
+      fill(c, ox + 3, 5, 10, 11, '#8a8a92');
+      fill(c, ox + 2, 4, 12, 2, '#b0b0b8');
+      fill(c, ox + 3, 14, 10, 2, '#5a5a62');
+      break;
+    case T.LADDER:
+      fill(c, ox, 0, S, S, '#2e5a3a');
+      fill(c, ox + 3, 0, 2, S, '#8a5a32');
+      fill(c, ox + 11, 0, 2, S, '#8a5a32');
+      for (const y of [2, 7, 12]) fill(c, ox + 5, y, 6, 2, '#a8763f');
+      break;
   }
+}
+
+/** Disc helper for textures bigger than one tile. */
+function bigDisc(c: Ctx, w: number, h: number, cx: number, cy: number, rx: number, ry: number, color: string, clip?: (x: number, y: number) => boolean) {
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++) {
+      const dx = (x + 0.5 - cx) / rx, dy = (y + 0.5 - cy) / ry;
+      if (dx * dx + dy * dy <= 1 && (!clip || clip(x, y))) px(c, x, y, color);
+    }
+}
+
+function makeStoryTextures(scene: Phaser.Scene) {
+  // Gerald: the moon, currently a giant turnip. Two frames: normal and blinking.
+  const g = scene.textures.createCanvas('gerald', 64, 32)!;
+  const gc = g.getContext();
+  for (const [ox, blink] of [[0, false], [32, true]] as const) {
+    gc.save();
+    gc.translate(ox, 0);
+    for (const [x, h, col] of [[11, 10, '#3a8a3a'], [15, 12, '#5ab857'], [19, 9, '#4aa04a'], [13, 7, '#6cc45c']] as const) fill(gc, x, 10 - h + 2, 3, h, col);
+    bigDisc(gc, 32, 32, 16, 20, 13.5, 11.5, '#2b1d14');
+    bigDisc(gc, 32, 32, 16, 20, 12.5, 10.5, '#f6f0e0');
+    bigDisc(gc, 32, 32, 16, 20, 12.5, 10.5, '#9a4ab0', (_x, y) => y < 15);
+    bigDisc(gc, 32, 32, 16, 20, 12.5, 10.5, '#b06ac8', (_x, y) => y < 12);
+    bigDisc(gc, 32, 32, 12, 24, 3, 2, '#fffaf0');
+    fill(gc, 15, 31, 2, 1, '#d8c8d8');
+    if (blink) {
+      fill(gc, 9, 19, 4, 1, '#2b1d14');
+      fill(gc, 19, 19, 4, 1, '#2b1d14');
+    } else {
+      fill(gc, 10, 17, 3, 4, '#2b1d14');
+      fill(gc, 19, 17, 3, 4, '#2b1d14');
+      px(gc, 10, 17, '#ffffff');
+      px(gc, 19, 17, '#ffffff');
+    }
+    fill(gc, 15, 23, 2, 2, '#2b1d14');
+    fill(gc, 7, 21, 2, 1, '#f0a0b8');
+    fill(gc, 23, 21, 2, 1, '#f0a0b8');
+    gc.restore();
+  }
+  g.add('0', 0, 0, 0, 32, 32);
+  g.add('1', 0, 32, 0, 32, 32);
+  g.refresh();
+
+  const glow = scene.textures.createCanvas('glow', 64, 64)!;
+  const glc = glow.getContext();
+  const grad = glc.createRadialGradient(32, 32, 2, 32, 32, 32);
+  grad.addColorStop(0, 'rgba(255,250,210,0.9)');
+  grad.addColorStop(0.5, 'rgba(255,240,180,0.3)');
+  grad.addColorStop(1, 'rgba(255,240,180,0)');
+  glc.fillStyle = grad;
+  glc.fillRect(0, 0, 64, 64);
+  glow.refresh();
+
+  // The Turnipult: a suspiciously large spoon on a jelly spring.
+  const tp = scene.textures.createCanvas('turnipult', 48, 32)!;
+  const tc = tp.getContext();
+  fill(tc, 0, 29, 48, 3, '#4e311b');
+  fill(tc, 0, 29, 48, 1, '#8a5a32');
+  // Jelly spring on the right.
+  for (let i = 0; i < 5; i++) bigDisc(tc, 48, 32, 41, 27 - i * 2.4, 5, 1.8, i % 2 ? '#3a9a4a' : '#6ad06a');
+  // Spoon handle from the spring into the bowl.
+  for (let i = 0; i < 10; i++) { fill(tc, 31 + i, 22 - Math.floor(i / 3), 1, 2, '#a8763f'); px(tc, 31 + i, 24 - Math.floor(i / 3), '#6b4426'); }
+  // The bowl, which Gerald sits in.
+  bigDisc(tc, 48, 32, 20, 25, 14, 5, '#6b4426');
+  bigDisc(tc, 48, 32, 20, 24.5, 12.5, 3.6, '#a8763f');
+  bigDisc(tc, 48, 32, 18, 23.5, 6, 1.2, '#c8945a');
+  tp.refresh();
+
+  // The moon in the night sky, before and after (it has a carrot in it now).
+  const moon = scene.textures.createCanvas('moon', 64, 32)!;
+  const mc = moon.getContext();
+  for (const ox of [0, 32]) {
+    mc.save();
+    mc.translate(ox, 0);
+    bigDisc(mc, 32, 32, 16, 16, 12, 12, '#f4f0d8');
+    bigDisc(mc, 32, 32, 12, 12, 3, 3, '#dcd6b4');
+    bigDisc(mc, 32, 32, 20, 20, 4, 3, '#dcd6b4');
+    bigDisc(mc, 32, 32, 21, 10, 2, 2, '#dcd6b4');
+    if (ox) {
+      for (let i = 0; i < 9; i++) fill(mc, 22 + i, 12 - i, 3, 3, i < 7 ? '#e8862a' : '#b8601a');
+      fill(mc, 30, 1, 1, 4, '#4aa04a'); fill(mc, 31, 2, 1, 3, '#5ab857'); fill(mc, 29, 2, 1, 2, '#5ab857');
+    }
+    mc.restore();
+  }
+  moon.add('plain', 0, 0, 0, 32, 32);
+  moon.add('carrot', 0, 32, 0, 32, 32);
+  moon.refresh();
+
+  // The player wearing the Slime Suit: same frame names as a character.
+  const suit = scene.textures.createCanvas('suit', S * 8, S)!;
+  const sc = suit.getContext();
+  const names = ['down_0', 'down_1', 'down_2', 'up_0', 'up_1', 'up_2', 'side_0', 'side_1'];
+  names.forEach((name, i) => {
+    const squash = name.endsWith('_1') || name.endsWith('_2');
+    const rows = (squash ? SLIME_SQUASH : SLIME).map(row => (name.startsWith('up') ? row.replace(/(?<=g)k(?=g)/g, 'g') : row));
+    sprite(sc, i * S, 0, rows, { k: '#1d4a20', g: '#6ad06a', d: '#3a9a42', w: '#e8ffe8' });
+    const top = squash ? 6 : 5;
+    fill(sc, i * S + 6, top - 2, 4, 2, '#7a4a24');
+    fill(sc, i * S + 5, top - 1, 6, 1, '#7a4a24');
+    px(sc, i * S + 7, top - 3, '#7a4a24');
+    suit.add(name, 0, i * S, 0, S, S);
+  });
+  suit.refresh();
+
+  // The Slime Librarian: tiny glasses, no eyes.
+  const lib = scene.textures.createCanvas('librarian', S, S)!;
+  const lc = lib.getContext();
+  sprite(lc, 0, 0, SLIME.map(r => r.replace(/(?<=g)k(?=g)/g, 'g')), { k: '#1d4a20', g: '#8ae0a0', d: '#4aaa62', w: '#ffffff' });
+  for (const x0 of [3, 9]) {
+    fill(lc, x0, 8, 4, 1, '#2b1d14'); fill(lc, x0, 11, 4, 1, '#2b1d14');
+    fill(lc, x0, 8, 1, 4, '#2b1d14'); fill(lc, x0 + 3, 8, 1, 4, '#2b1d14');
+    fill(lc, x0 + 1, 9, 2, 2, '#d8f0ff');
+  }
+  fill(lc, 7, 9, 2, 1, '#2b1d14');
+  lib.refresh();
+
+  const puddle = scene.textures.createCanvas('puddle', 16, 8)!;
+  const pc = puddle.getContext();
+  bigDisc(pc, 16, 8, 8, 4, 6, 3, 'rgba(120,200,140,0.55)');
+  bigDisc(pc, 16, 8, 6, 3, 2, 1, 'rgba(220,255,230,0.7)');
+  puddle.refresh();
+
+  // The Moonstring, glowing on its pedestal.
+  const str = scene.textures.createCanvas('moonstring', S, S)!;
+  const stc = str.getContext();
+  bigDisc(stc, S, S, 8, 8, 6, 4, '#fff4a0');
+  bigDisc(stc, S, S, 8, 8, 4, 2.4, '#c8b040');
+  bigDisc(stc, S, S, 8, 8, 2.5, 1.2, '#fffbe0');
+  for (let i = 0; i < 6; i++) px(stc, 13 + (i % 2), 9 + i, '#fff4a0');
+  str.refresh();
 }
 
 // ---------------------------------------------------------------- characters
@@ -423,6 +595,14 @@ const ITEM_DRAW: Record<ItemId, (c: Ctx, ox: number) => void> = {
     disc(c, ox, 0, 8, 8, 5.4, '#d04030', (_x, y) => y <= 7);
     px(c, ox + 5, 5, '#ffffff'); px(c, ox + 9, 4, '#ffffff'); px(c, ox + 11, 6, '#ffffff');
   },
+  suit(c, ox) {
+    disc(c, ox, 0, 8, 10, 6, '#1d4a20');
+    disc(c, ox, 0, 8, 10, 5.2, '#6ad06a');
+    fill(c, ox + 6, 3, 4, 2, '#7a4a24');
+    fill(c, ox + 5, 4, 6, 1, '#7a4a24');
+    fill(c, ox + 5, 9, 1, 2, '#1d4a20'); fill(c, ox + 10, 9, 1, 2, '#1d4a20');
+    px(c, ox + 6, 7, '#e8ffe8');
+  },
   bread(c, ox) {
     disc(c, ox, 0, 8, 11, 6.6, '#8a5220', (_x, y) => y >= 5 && y <= 14);
     disc(c, ox, 0, 8, 11, 5.8, '#d89048', (_x, y) => y >= 6 && y <= 13);
@@ -512,6 +692,16 @@ export function generateTextures(scene: Phaser.Scene): void {
   slime.add('1', 0, S, 0, S, S);
   slime.refresh();
 
+  // Lord Gloopington III and his pieces: a bright purple slime that stays visible at night.
+  const gloop = scene.textures.createCanvas('gloop', S * 2, S)!;
+  const glc = gloop.getContext();
+  const gpal = { k: '#3a1a5a', g: '#c88af8', d: '#9a5ad8', w: '#ffe8ff' };
+  sprite(glc, 0, 0, SLIME, gpal);
+  sprite(glc, S, 0, SLIME_SQUASH, gpal);
+  gloop.add('0', 0, 0, 0, S, S);
+  gloop.add('1', 0, S, 0, S, S);
+  gloop.refresh();
+
   const items = scene.textures.createCanvas('items', S * ITEM_ORDER.length, S)!;
   const ic = items.getContext();
   ITEM_ORDER.forEach((id, i) => {
@@ -559,6 +749,8 @@ export function generateTextures(scene: Phaser.Scene): void {
     }
   slash.refresh();
 
+  makeStoryTextures(scene);
+
   const spark = scene.textures.createCanvas('spark', 2, 2)!;
   fill(spark.getContext(), 0, 0, 2, 2, '#ffffff');
   spark.refresh();
@@ -572,7 +764,7 @@ export function generateTextures(scene: Phaser.Scene): void {
 }
 
 export function createAnimations(scene: Phaser.Scene): void {
-  for (const key of Object.keys(CHARACTERS)) {
+  for (const key of [...Object.keys(CHARACTERS), 'suit']) {
     for (const dir of ['down', 'up']) {
       scene.anims.create({
         key: `${key}_${dir}`,
@@ -588,6 +780,17 @@ export function createAnimations(scene: Phaser.Scene): void {
       repeat: -1,
     });
   }
+  scene.anims.create({
+    key: 'gerald_idle',
+    frames: [{ key: 'gerald', frame: '0', duration: 2600 }, { key: 'gerald', frame: '1', duration: 140 }],
+    repeat: -1,
+  });
+  scene.anims.create({
+    key: 'gloop_idle',
+    frames: [{ key: 'gloop', frame: '0' }, { key: 'gloop', frame: '1' }],
+    frameRate: 3,
+    repeat: -1,
+  });
   scene.anims.create({
     key: 'slime_idle',
     frames: [{ key: 'slime', frame: '0' }, { key: 'slime', frame: '1' }],

@@ -8,6 +8,9 @@ import {
 } from '../state';
 import { modal, ui } from '../bus';
 import { Slime } from '../slime';
+import { Boss } from '../boss';
+import { Story, flag, goalText, wearingSuit } from '../quest';
+import { CHARACTERS } from '../textures';
 
 type Body = Phaser.Physics.Arcade.Body;
 
@@ -36,7 +39,7 @@ interface WorldArgs {
   wake?: string;
 }
 
-interface Npc {
+export interface Npc {
   def: NpcDef;
   sprite: Phaser.Physics.Arcade.Sprite;
   talks: number;
@@ -52,16 +55,17 @@ type KeyName = 'up' | 'down' | 'left' | 'right' | 'w' | 'a' | 's' | 'd' | 'space
 
 export class WorldScene extends Phaser.Scene {
   private args: WorldArgs = {};
-  private def!: MapDef;
-  private layer!: Phaser.Tilemaps.TilemapLayer;
-  private player!: Phaser.Physics.Arcade.Sprite;
+  def!: MapDef;
+  layer!: Phaser.Tilemaps.TilemapLayer;
+  player!: Phaser.Physics.Arcade.Sprite;
+  npcs: Npc[] = [];
+  lockedUntil = 0;
+  private story!: Story;
   private keys!: Record<KeyName, Phaser.Input.Keyboard.Key>;
   private facing: Facing = 'down';
-  private npcs: Npc[] = [];
   private slimes: Slime[] = [];
   private pickups: Pickup[] = [];
   private cropSprites = new Map<string, Phaser.GameObjects.Image>();
-  private lockedUntil = 0;
   private invulnUntil = 0;
   private knockUntil = 0;
   private swingReadyAt = 0;
@@ -110,6 +114,8 @@ export class WorldScene extends Phaser.Scene {
     this.spawnNpcs();
     this.spawnSlimes(spawn);
     this.spawnForage();
+    this.story = new Story(this);
+    this.story.create();
 
     const cam = this.cameras.main;
     cam.setBounds(0, 0, W, H);
@@ -135,7 +141,10 @@ export class WorldScene extends Phaser.Scene {
     ui.location(def.name);
     if (this.args.intro) this.time.delayedCall(500, () => this.intro());
     else if (this.args.wake) this.time.delayedCall(500, () => ui.dialogue({ lines: [this.args.wake!] }));
-    if (this.args.newDay) this.time.delayedCall(300, () => ui.toast(`Day ${state.day} - Good morning!`));
+    if (this.args.newDay) {
+      this.time.delayedCall(300, () => ui.toast(`Day ${state.day} - Good morning!`));
+      this.story.onNewDay();
+    }
   }
 
   // ------------------------------------------------------------------ setup
@@ -152,8 +161,11 @@ export class WorldScene extends Phaser.Scene {
 
   private spawnNpcs(): void {
     for (const def of this.def.npcs) {
-      const s = this.physics.add.sprite((def.x + 0.5) * TILE, (def.y + 0.5) * TILE - 4, def.sprite, 'down_0');
+      if (def.show && !def.show()) continue;
+      const person = def.sprite in CHARACTERS;
+      const s = this.physics.add.sprite((def.x + 0.5) * TILE, (def.y + 0.5) * TILE - 4, def.sprite, person ? 'down_0' : undefined);
       (s.body as Body).setSize(10, 6).setOffset(3, 10);
+      if (def.slime !== undefined) s.setTint(def.slime).play('slime_idle').anims.setProgress(Math.random());
       s.setImmovable(true);
       s.setPushable(false);
       s.setDepth(s.y + 8);
@@ -166,7 +178,7 @@ export class WorldScene extends Phaser.Scene {
       this.time.addEvent({
         delay: 2600, loop: true, callback: () => {
           for (const n of this.npcs) {
-            if (n.def.id !== 'bram' && Math.random() < 0.35) {
+            if (n.def.id !== 'bram' && n.def.sprite in CHARACTERS && Math.random() < 0.35) {
               this.faceNpc(n, Phaser.Utils.Array.GetRandom(['down', 'left', 'right', 'up'] as Facing[]));
             }
           }
@@ -176,21 +188,34 @@ export class WorldScene extends Phaser.Scene {
   }
 
   private faceNpc(n: Npc, f: Facing): void {
+    if (!(n.def.sprite in CHARACTERS)) return;
     const dir = f === 'left' || f === 'right' ? 'side' : f;
     n.sprite.setFrame(`${dir}_0`);
     n.sprite.setFlipX(f === 'left');
   }
 
   private spawnSlimes(spawn: Point): void {
+    this.physics.add.collider(this.slimes, this.layer);
+    this.physics.add.collider(this.slimes, this.slimes);
+    this.physics.add.overlap(this.player, this.slimes, (_p, s) => this.hurtPlayer(s as Slime));
     if (!this.def.slimes) return;
     const spots = this.def.open.filter(p => Math.abs(p.x - spawn.x) + Math.abs(p.y - spawn.y) > 9);
     for (let i = 0; i < this.def.slimes && spots.length; i++) {
       const p = spots.splice(Phaser.Math.Between(0, spots.length - 1), 1)[0];
-      this.slimes.push(new Slime(this, (p.x + 0.5) * TILE, (p.y + 0.5) * TILE - 4));
+      this.addSlime((p.x + 0.5) * TILE, (p.y + 0.5) * TILE - 4);
     }
-    this.physics.add.collider(this.slimes, this.layer);
-    this.physics.add.collider(this.slimes, this.slimes);
-    this.physics.add.overlap(this.player, this.slimes, (_p, s) => this.hurtPlayer(s as Slime));
+  }
+
+  addSlime(x: number, y: number, kind: 'slime' | 'gloop' = 'slime'): Slime {
+    const s = new Slime(this, x, y, kind);
+    this.slimes.push(s);
+    return s;
+  }
+
+  removeSlime(s: Slime): void {
+    const i = this.slimes.indexOf(s);
+    if (i >= 0) this.slimes.splice(i, 1);
+    s.destroy();
   }
 
   private spawnForage(): void {
@@ -253,8 +278,10 @@ export class WorldScene extends Phaser.Scene {
       body.setVelocity(len ? (vx / len) * SPEED : 0, len ? (vy / len) * SPEED : 0);
     }
     this.updateFacing(vx, vy);
+    const skin = this.skin();
+    if (this.player.texture.key !== skin) this.player.setTexture(skin, this.player.frame.name);
     if (vx || vy) {
-      this.player.anims.play(`player_${this.facing === 'left' || this.facing === 'right' ? 'side' : this.facing}`, true);
+      this.player.anims.play(`${skin}_${this.facing === 'left' || this.facing === 'right' ? 'side' : this.facing}`, true);
       this.player.setFlipX(this.facing === 'left');
     } else {
       this.setIdleFrame();
@@ -268,7 +295,9 @@ export class WorldScene extends Phaser.Scene {
       else if (pressNext) this.cycleItem(1);
     }
 
-    for (const s of this.slimes) s.think(now, this.player, paused);
+    const disguised = wearingSuit();
+    for (const s of this.slimes) s.think(now, this.player, paused, disguised);
+    this.story.update(now, paused);
     this.checkPickups();
 
     this.player.setDepth(this.player.y + 8);
@@ -282,6 +311,8 @@ export class WorldScene extends Phaser.Scene {
     while (this.tickAcc >= MS_PER_MINUTE) {
       this.tickAcc -= MS_PER_MINUTE;
       state.minutes++;
+      this.story.onMinute();
+      if (this.transitioning) return;
       if (state.minutes === 24 * 60) ui.toast("It's midnight. You should head to bed soon.");
       if (state.minutes >= DAY_END) {
         this.endDay(true, "It's 2 AM... you collapse from exhaustion. Somehow you wake up in bed, still tired.");
@@ -299,6 +330,10 @@ export class WorldScene extends Phaser.Scene {
     else if (this.facing !== h && this.facing !== v) this.facing = v;
   }
 
+  private skin(): string {
+    return wearingSuit() ? 'suit' : 'player';
+  }
+
   private setIdleFrame(): void {
     const dir = this.facing === 'left' || this.facing === 'right' ? 'side' : this.facing;
     this.player.anims.stop();
@@ -313,7 +348,7 @@ export class WorldScene extends Phaser.Scene {
   private checkWarps(): void {
     const b = this.pbody();
     const tx = Math.floor(b.center.x / TILE), ty = Math.floor(b.center.y / TILE);
-    const w = this.def.warps.find(w => tx >= w.x && tx < w.x + w.w && ty >= w.y && ty < w.y + w.h);
+    const w = this.def.warps.find(w => tx >= w.x && tx < w.x + w.w && ty >= w.y && ty < w.y + w.h && (!w.requires || flag(w.requires)));
     if (w) this.travel(w);
   }
 
@@ -349,7 +384,7 @@ export class WorldScene extends Phaser.Scene {
   }
 
   /** Talks, reads, harvests or picks up whatever is in front of the player. Returns true if something happened. */
-  private interact(): boolean {
+  private interact(fromUse = false): boolean {
     const t = this.facingTarget();
     for (const n of this.npcs) {
       if (Phaser.Math.Distance.Between(t.px, t.py, n.sprite.x, n.sprite.y + 4) < 13) {
@@ -357,6 +392,7 @@ export class WorldScene extends Phaser.Scene {
         return true;
       }
     }
+    if (this.story.interactAt(t.tx, t.ty, fromUse)) return true;
     const it = this.def.interact.find(i => i.x === t.tx && i.y === t.ty);
     if (it) { this.useInteractable(it); return true; }
     const soil = this.def.farmable ? state.soil[soilKey(t.tx, t.ty)] : undefined;
@@ -369,6 +405,8 @@ export class WorldScene extends Phaser.Scene {
   private talk(n: Npc): void {
     const dx = this.player.x - n.sprite.x, dy = this.player.y - n.sprite.y;
     this.faceNpc(n, Math.abs(dx) > Math.abs(dy) ? (dx < 0 ? 'left' : 'right') : dy < 0 ? 'up' : 'down');
+    if (this.story.talk(n.def, n.sprite)) return;
+    if (!n.def.chat.length) return;
     let lines: string[];
     if (!state.met.includes(n.def.id)) {
       state.met.push(n.def.id);
@@ -398,7 +436,8 @@ export class WorldScene extends Phaser.Scene {
       case 'shop':
         ui.dialogue({
           speaker: 'Bram',
-          lines: [state.met.includes('bram') ? 'Back again? Have a look.' : "Welcome to Bram's! Seeds, snacks, and the odd trinket. Have a look."],
+          lines: this.story.shopGreeting()
+            ?? [state.met.includes('bram') ? 'Back again? Have a look.' : "Welcome to Bram's! Seeds, snacks, and the odd trinket. Have a look."],
           onClose: () => ui.shop(),
         });
         if (!state.met.includes('bram')) state.met.push('bram');
@@ -447,7 +486,7 @@ export class WorldScene extends Phaser.Scene {
   }
 
   private useSelected(): void {
-    if (this.interact()) return;
+    if (this.interact(true)) return;
     const slot = state.selected;
     const stack = state.inventory[slot];
     if (!stack) return;
@@ -455,6 +494,7 @@ export class WorldScene extends Phaser.Scene {
     if (stack.id === 'hoe') this.useHoe();
     else if (stack.id === 'can') this.useCan();
     else if (stack.id === 'sword') this.swingSword();
+    else if (stack.id === 'suit') ui.toast("You're wearing the Slime Suit. Slimes think you're one of them.");
     else if (item.kind === 'seed') this.plant(slot);
     else if (item.energy || item.heal) this.offerEat(slot);
   }
@@ -503,7 +543,7 @@ export class WorldScene extends Phaser.Scene {
     this.lockedUntil = this.time.now + 150;
   }
 
-  private refreshCrop(x: number, y: number): void {
+  refreshCrop(x: number, y: number): void {
     const key = soilKey(x, y);
     const soil = state.soil[key];
     let spr = this.cropSprites.get(key);
@@ -553,7 +593,8 @@ export class WorldScene extends Phaser.Scene {
   private openMenu(): void {
     ui.dialogue({
       speaker: 'Menu',
-      lines: [`Day ${state.day}, ${formatTime(state.minutes)}.  Gold: ${state.gold}g.  Slimes defeated: ${state.slimes}.`],
+      lines: [`Day ${state.day}, ${formatTime(state.minutes)}.  Gold: ${state.gold}g.  Slimes defeated: ${state.slimes}.` +
+        (goalText() ? `\nGoal: ${goalText()}` : '')],
       choices: [
         { label: 'Resume' },
         { label: 'Controls', action: () => ui.dialogue({ speaker: 'Controls', lines: CONTROLS }) },
@@ -579,6 +620,7 @@ export class WorldScene extends Phaser.Scene {
     this.tweens.add({ targets: slash, alpha: 0, scale: 1.25, duration: 180, onComplete: () => slash.destroy() });
 
     const hit = new Phaser.Geom.Rectangle(cx - 11, cy - 11, 22, 22);
+    this.story.onSwing(hit, d.x, d.y, now);
     for (const s of [...this.slimes]) {
       const sb = s.body as Body;
       if (!Phaser.Geom.Intersects.RectangleToRectangle(hit, new Phaser.Geom.Rectangle(sb.x, sb.y, sb.width, sb.height))) continue;
@@ -587,24 +629,24 @@ export class WorldScene extends Phaser.Scene {
   }
 
   private killSlime(s: Slime): void {
-    this.slimes.splice(this.slimes.indexOf(s), 1);
     state.slimes++;
     this.burst(s.x, s.y + 2, 0x6ad06a, 12);
     if (Math.random() < 0.8) this.addPickup(s.x, s.y + 2, 'gel');
-    s.destroy();
+    this.removeSlime(s);
     if (state.slimes % 10 === 0) ui.toast(`${state.slimes} slimes defeated! Mayor Orla will be pleased.`);
   }
 
-  private hurtPlayer(s: Slime): void {
+  hurtPlayer(s: Slime | Boss): void {
     const now = this.time.now;
-    if (modal.open || this.transitioning || s.dead || now < this.invulnUntil) return;
+    if (modal.open || this.transitioning || now < this.invulnUntil) return;
+    if (s instanceof Slime && (s.dead || (wearingSuit() && !s.angry))) return;
     state.hp--;
     this.invulnUntil = now + 1000;
     const dx = this.player.x - s.x, dy = this.player.y - s.y;
     const len = Math.hypot(dx, dy) || 1;
     this.pbody().setVelocity((dx / len) * 170, (dy / len) * 170);
     this.knockUntil = now + 160;
-    s.knock(-dx, -dy, now, 90);
+    if (s instanceof Slime) s.knock(-dx, -dy, now, 90);
     this.cameras.main.shake(120, 0.004);
     this.player.setTintFill(0xff6060);
     this.time.delayedCall(110, () => this.player.clearTint());
@@ -651,7 +693,7 @@ export class WorldScene extends Phaser.Scene {
     });
   }
 
-  private burst(x: number, y: number, color: number, n: number): void {
+  burst(x: number, y: number, color: number, n: number): void {
     for (let i = 0; i < n; i++) {
       const p = this.add.image(x, y, 'spark').setTint(color).setDepth(10000);
       const a = Math.random() * Math.PI * 2, r = 4 + Math.random() * 8;

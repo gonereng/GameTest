@@ -19,3 +19,7 @@ const game = new Phaser.Game({
 
 // Handy for debugging from the browser console.
 (window as unknown as { game: Phaser.Game }).game = game;
+
+// Read-only peek at the live save data from the console: `hollowbrook.state`.
+import * as Save from './state';
+Object.defineProperty(window, 'hollowbrook', { get: () => ({ state: Save.state }) });

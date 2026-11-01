@@ -27,12 +27,20 @@ export const T = {
   SHELF: 24,
   TABLE: 25,
   DOOR_LOCKED: 26,
+  CRATER: 27,
+  HOLE: 28,
+  JELLY_FLOOR: 29,
+  ROOT_WALL: 30,
+  JELLY_DOOR: 31,
+  PEDESTAL: 32,
+  LADDER: 33,
 } as const;
 
-export const TILE_COUNT = 27;
+export const TILE_COUNT = 34;
 
 /** Tiles the player and monsters cannot walk through. */
 export const SOLID: number[] = [
   T.WATER, T.TREE, T.WALL, T.ROOF, T.FENCE, T.ROCK, T.BED, T.COUNTER, T.BUSH,
   T.BIN, T.SIGN, T.IN_WALL, T.VOID, T.WINDOW, T.SHELF, T.TABLE, T.DOOR_LOCKED,
+  T.CRATER, T.ROOT_WALL, T.JELLY_DOOR, T.PEDESTAL,
 ];

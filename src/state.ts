@@ -27,6 +27,8 @@ export interface GameState {
   /** Forage spots already picked today, keyed by "x,y". */
   forage: Record<string, boolean>;
   slimes: number;
+  /** Story progress: see quest.ts for the steps and flags. */
+  quest: { step: number; flags: Record<string, boolean>; crashDay: number };
   met: string[];
   shipped: number;
 }
@@ -36,6 +38,7 @@ export const MAX_STACK = 99;
 export const DAY_START = 6 * 60;
 export const DAY_END = 26 * 60;
 const SAVE_KEY = 'hollowbrook-save-v1';
+const BACKUP_KEY = 'hollowbrook-save-backup-v1';
 
 export function newGame(): GameState {
   const inventory: (Stack | null)[] = Array(HOTBAR_SIZE).fill(null);
@@ -57,6 +60,7 @@ export function newGame(): GameState {
     soil: {},
     forage: {},
     slimes: 0,
+    quest: { step: 0, flags: {}, crashDay: 0 },
     met: [],
     shipped: 0,
   };
@@ -80,9 +84,26 @@ export function save(): void {
   }
 }
 
-export function loadSave(): GameState | null {
+/** A second save made at the start of the story's last day, so a failed run can be retried. */
+export function saveBackup(): void {
   try {
-    const raw = localStorage.getItem(SAVE_KEY);
+    localStorage.setItem(BACKUP_KEY, JSON.stringify(state));
+  } catch {
+    /* ignore */
+  }
+}
+
+export function restoreBackup(): boolean {
+  const s = loadSave(BACKUP_KEY);
+  if (!s) return false;
+  state = s;
+  save();
+  return true;
+}
+
+export function loadSave(key = SAVE_KEY): GameState | null {
+  try {
+    const raw = localStorage.getItem(key);
     if (!raw) return null;
     const data = JSON.parse(raw) as Partial<GameState>;
     if (data.version !== 1) return null;
@@ -128,6 +149,24 @@ export function addItem(id: ItemId, qty = 1): boolean {
       left -= n;
     }
   }
+  return true;
+}
+
+export function countItem(id: ItemId): number {
+  return state.inventory.reduce((n, s) => n + (s && s.id === id ? s.qty : 0), 0);
+}
+
+/** Removes qty of an item from anywhere in the bag. Returns false (removing nothing) if there aren't enough. */
+export function removeItem(id: ItemId, qty: number): boolean {
+  if (countItem(id) < qty) return false;
+  let left = qty;
+  state.inventory.forEach((s, i) => {
+    if (s && s.id === id && left > 0) {
+      const n = Math.min(left, s.qty);
+      left -= n;
+      removeAt(i, n);
+    }
+  });
   return true;
 }
 

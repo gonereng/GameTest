@@ -36,6 +36,14 @@ npm run build      # production build in dist/ (static files, works on GitHub Pa
 - **Places:** farm, house, Hollowbrook town (Mayor Orla, Pip), Bram's shop, Mossy Woods.
 - **Saving:** automatic on sleep, stored in the browser's localStorage.
 
+## The story: "The Moon Is in My Turnip"
+
+At 10 PM on Day 1 the moon falls onto your farm. It's a talking turnip named Gerald, and it has to be
+back in the sky by midnight on Day 4. Follow the goal panel under the clock (top right). The full
+design, including every scene and both endings, is in [docs/STORY.md](docs/STORY.md).
+
+Spoiler-free tips: talk to everyone, keep some Slime Gel, and water the soil right next to Gerald.
+
 ## Code layout
 
 ```
@@ -48,6 +56,8 @@ src/
   state.ts           Game state, inventory, day advance, save/load
   textures.ts        All pixel art, drawn with canvas at startup
   slime.ts           Slime enemy
+  quest.ts           The story: steps, dialogue, puzzles, Gerald, the Turnipult, the finale
+  boss.ts            Lord Gloopington III
   bus.ts             Events between the world and the UI
   scenes/
     BootScene.ts     Generates textures and animations
