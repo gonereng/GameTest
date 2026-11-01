@@ -27,6 +27,7 @@ export class BootScene extends Phaser.Scene {
     this.load.spritesheet('chicken_blonde', `${PACK}chicken_blonde.png`, { frameWidth: 16, frameHeight: 16 });
     this.load.spritesheet('chick', `${PACK}chick.png`, { frameWidth: 16, frameHeight: 16 });
     this.load.spritesheet('cow', `${PACK}cow.png`, { frameWidth: 32, frameHeight: 32 });
+    this.load.spritesheet('cow_male', `${PACK}cow_male.png`, { frameWidth: 32, frameHeight: 32 });
     this.load.image('tf_crops', `${PACK}crops.png`);
     this.load.image('tf_house', `${PACK}house.png`);
     this.load.image('tf_interior', `${PACK}interior.png`);
@@ -65,8 +66,10 @@ export class BootScene extends Phaser.Scene {
     }
     this.anims.create({ key: 'chick_walk', frames: this.anims.generateFrameNumbers('chick', { start: 0, end: 3 }), frameRate: 6, repeat: -1 });
     this.anims.create({ key: 'chick_idle', frames: this.anims.generateFrameNumbers('chick', { start: 4, end: 7 }), frameRate: 3, repeat: -1 });
-    ['side', 'down', 'up'].forEach((dir, row) => {
-      this.anims.create({ key: `cow_${dir}`, frames: this.anims.generateFrameNumbers('cow', { start: row * 4, end: row * 4 + 3 }), frameRate: 4, repeat: -1 });
-    });
+    for (const key of ['cow', 'cow_male']) {
+      ['side', 'down', 'up'].forEach((dir, row) => {
+        this.anims.create({ key: `${key}_${dir}`, frames: this.anims.generateFrameNumbers(key, { start: row * 4, end: row * 4 + 3 }), frameRate: 4, repeat: -1 });
+      });
+    }
   }
 }

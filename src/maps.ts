@@ -43,7 +43,7 @@ export interface Prop {
   depth?: number;
 }
 
-export type CritterKind = 'chicken_red' | 'chicken_blonde' | 'chick' | 'cow';
+export type CritterKind = 'chicken_red' | 'chicken_blonde' | 'chick' | 'cow' | 'cow_male';
 export interface Critter { kind: CritterKind; x: number; y: number }
 
 export type InteractKind = 'bed' | 'bin' | 'shop' | 'sign' | 'locked';
@@ -265,6 +265,12 @@ function buildTown(): MapDef {
   return finish(b, {
     id: 'town', name: 'Hollowbrook', indoor: false, farmable: false,
     props,
+    critters: [
+      // A few chickens scratching around the garden, and two cows grazing on the east lawn.
+      { kind: 'chicken_red', x: 12, y: 21 }, { kind: 'chicken_blonde', x: 13, y: 24 },
+      { kind: 'chicken_red', x: 8, y: 25 }, { kind: 'chick', x: 12, y: 23 }, { kind: 'chick', x: 14, y: 22 },
+      { kind: 'cow', x: 31, y: 21 }, { kind: 'cow_male', x: 34, y: 24 },
+    ],
     spawn: { x: 2, y: 14 },
     warps: [
       { x: 0, y: 14, w: 1, h: 2, to: 'farm', tx: 37, ty: 14, facing: 'left' },
