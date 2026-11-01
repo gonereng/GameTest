@@ -23,6 +23,10 @@ npm run build      # production build in dist/ (static files, works on GitHub Pa
 | 1-0, Q, mouse wheel | Pick a hotbar slot |
 | Esc | Menu |
 
+The game switches to fullscreen on your first tap, click or key press (browsers don't allow it
+any sooner). Press Esc or the fullscreen button to leave it. On iPhone, where websites can't go
+fullscreen, use Share → **Add to Home Screen** and open it from there.
+
 **On a phone or tablet** (hold it sideways): drag anywhere on the left half to move, tap **USE** and
 **TALK** on the right, tap a hotbar slot to pick it, and use the two buttons at the top for the menu
 and fullscreen. Tap to advance dialogue. In the shop, tap an item twice to buy it.

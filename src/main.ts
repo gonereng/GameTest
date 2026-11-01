@@ -4,6 +4,7 @@ import { BootScene } from './scenes/BootScene';
 import { TitleScene } from './scenes/TitleScene';
 import { WorldScene } from './scenes/WorldScene';
 import { UIScene } from './scenes/UIScene';
+import { fullscreenOnFirstInput } from './fullscreen';
 
 const game = new Phaser.Game({
   type: Phaser.AUTO,
@@ -17,6 +18,8 @@ const game = new Phaser.Game({
   scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
   scene: [BootScene, TitleScene, WorldScene, UIScene],
 });
+
+fullscreenOnFirstInput();
 
 // Handy for debugging from the browser console.
 (window as unknown as { game: Phaser.Game }).game = game;

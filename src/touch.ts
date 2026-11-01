@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { GAME_H, GAME_W } from './config';
 import { HOTBAR_SIZE, state } from './state';
 import { modal } from './bus';
+import { toggleFullscreen } from './fullscreen';
 
 /** Shared touch input: the UI scene writes it, the world scene reads it. */
 export const touch = {
@@ -172,8 +173,7 @@ export class TouchControls {
 
   private onUp(p: Phaser.Input.Pointer): void {
     if (touch.enabled && this.hit(this.full, p)) {
-      const sm = this.scene.scale;
-      if (sm.isFullscreen) sm.stopFullscreen(); else sm.startFullscreen();
+      toggleFullscreen();
       return;
     }
     if (p.id !== this.stickId) return;
