@@ -17,7 +17,7 @@ npm run build      # production build in dist/ (static files, works on GitHub Pa
 
 | Key | Action |
 | --- | --- |
-| WASD / Arrows | Move |
+| WASD / Arrows | Move one tile at a time (hold to keep walking, tap to just turn) |
 | Space (or J) | Use the selected item. When facing a person, sign or ripe crop, it interacts instead |
 | E (or K) | Talk, read, harvest, open |
 | 1-0, Q, mouse wheel | Pick a hotbar slot |

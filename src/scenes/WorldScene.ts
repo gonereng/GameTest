@@ -23,7 +23,10 @@ const DIR: Record<Facing, Point> = {
 const SLASH_ANGLE: Record<Facing, number> = { right: 0, down: 90, left: 180, up: -90 };
 /** How far the sword reaches from the middle of the player's body, in world pixels (1.75 tiles). */
 const SWORD_REACH = 28;
-const SPEED = 80;
+/** Time to walk one tile, in ms (80 pixels per second). */
+const STEP_MS = 200;
+/** A quick tap shorter than this just turns the player to face that way. */
+const TURN_MS = 90;
 /** Real milliseconds per in-game minute. A full day (6 AM to 2 AM) is about 14 minutes. */
 const MS_PER_MINUTE = 700;
 
@@ -74,7 +77,15 @@ export class WorldScene extends Phaser.Scene {
   private pickups: Pickup[] = [];
   private cropSprites = new Map<string, Phaser.GameObjects.Image>();
   private invulnUntil = 0;
-  private knockUntil = 0;
+  /** The tile the player stands on, or is walking away from. */
+  private grid: Point = { x: 0, y: 0 };
+  /** The step in progress, if any: from grid to (tx, ty), with t going 0 -> 1. */
+  private step?: { tx: number; ty: number; t: number; ms: number };
+  /** Direction keys currently held, oldest first; the newest one wins. */
+  private heldOrder: Facing[] = [];
+  private turnUntil = 0;
+  /** Use/Talk pressed mid-step, done as soon as the step finishes. */
+  private pendingAction: 'use' | 'talk' | null = null;
   private swingReadyAt = 0;
   private transitioning = false;
   private tickAcc = 0;
@@ -91,7 +102,10 @@ export class WorldScene extends Phaser.Scene {
     this.cropSprites = new Map();
     this.lockedUntil = 0;
     this.invulnUntil = 0;
-    this.knockUntil = 0;
+    this.step = undefined;
+    this.heldOrder = [];
+    this.turnUntil = 0;
+    this.pendingAction = null;
     this.swingReadyAt = 0;
     this.transitioning = false;
     this.tickAcc = 0;
@@ -114,12 +128,13 @@ export class WorldScene extends Phaser.Scene {
     // Player
     const spawn = this.args.spawn ?? def.spawn;
     this.currentSkin = this.skin();
-    this.player = this.physics.add.sprite((spawn.x + 0.5) * TILE, (spawn.y + 0.5) * TILE - 7,
+    this.grid = { x: spawn.x, y: spawn.y };
+    this.player = this.physics.add.sprite(0, 0,
       this.currentSkin === 'suit' ? 'suit' : 'farmer_idle', this.currentSkin === 'suit' ? 'down_0' : 0);
-    if (this.currentSkin === 'suit') this.player.y += 3;
+    // The player moves tile by tile (see stepPlayer). The physics body just follows the sprite, so slimes
+    // and pickups can still detect it.
+    this.pbody().moves = false;
     this.applySkinBody();
-    this.player.setCollideWorldBounds(true);
-    this.physics.add.collider(this.player, this.layer);
     this.setIdleFrame();
 
     this.placeScenery();
@@ -297,8 +312,7 @@ export class WorldScene extends Phaser.Scene {
     const pressNext = Phaser.Input.Keyboard.JustDown(k.q);
     const pressMenu = Phaser.Input.Keyboard.JustDown(k.esc) || consumeTouch('menu');
 
-    const body = this.pbody();
-    if (this.transitioning) { body.setVelocity(0, 0); return; }
+    if (this.transitioning) return;
 
     const now = this.time.now;
     const paused = modal.open;
@@ -307,42 +321,29 @@ export class WorldScene extends Phaser.Scene {
       if (this.transitioning) return;
     }
 
-    let vx = 0, vy = 0;
-    if (!paused && now >= this.lockedUntil) {
-      if (k.left.isDown || k.a.isDown) vx -= 1;
-      if (k.right.isDown || k.d.isDown) vx += 1;
-      if (k.up.isDown || k.w.isDown) vy -= 1;
-      if (k.down.isDown || k.s.isDown) vy += 1;
-      // Joystick: snap to 8 directions, which suits a tile-based world.
-      const len = Math.hypot(touch.dx, touch.dy);
-      if (len > 0.3) {
-        const nx = touch.dx / len, ny = touch.dy / len;
-        if (Math.abs(nx) > 0.38) vx += Math.sign(nx);
-        if (Math.abs(ny) > 0.38) vy += Math.sign(ny);
-      }
-    }
-    if (now >= this.knockUntil) {
-      const len = Math.hypot(vx, vy);
-      body.setVelocity(len ? (vx / len) * SPEED : 0, len ? (vy / len) * SPEED : 0);
-    }
-    this.updateFacing(vx, vy);
+    const dir = this.heldDirection();
+    if (!paused) this.stepPlayer(delta, now, now >= this.lockedUntil ? dir : null);
+    if (this.transitioning) return;
+
     const skin = this.skin();
     if (this.currentSkin !== skin) {
       this.currentSkin = skin;
       this.player.anims.stop();
       this.player.setTexture(skin === 'suit' ? 'suit' : 'farmer_idle', skin === 'suit' ? 'down_0' : 0);
-      this.applySkinBody(true);
+      this.applySkinBody();
     }
-    if (vx || vy) {
+    if (this.step) {
       this.player.anims.play(`${skin}_${this.facing === 'left' || this.facing === 'right' ? 'side' : this.facing}`, true);
       this.player.setFlipX(this.flipPlayer());
     } else {
       this.setIdleFrame();
     }
+    this.placePlayer();
 
     const inputOk = !paused && now >= this.lockedUntil && performance.now() - modal.closedAt > 150;
     if (inputOk) {
       if (pressMenu) this.openMenu();
+      else if ((pressTalk || pressUse) && this.step) this.pendingAction = pressTalk ? 'talk' : 'use';
       else if (pressTalk) this.interact();
       else if (pressUse) this.useSelected();
       else if (pressNext) this.cycleItem(1);
@@ -354,10 +355,102 @@ export class WorldScene extends Phaser.Scene {
     this.story.update(now, paused);
     this.checkPickups();
 
-    this.player.setDepth(this.pbody().bottom);
+    this.player.setDepth(this.player.y + (this.currentSkin === 'suit' ? 5 : 10));
     this.player.setAlpha(now < this.invulnUntil && Math.floor(now / 90) % 2 ? 0.35 : 1);
+  }
 
-    if (!paused) this.checkWarps();
+  // ------------------------------------------------------------------ grid movement
+
+  /** Which direction the player wants to go: the most recently pressed key that's still held, or the joystick. */
+  private heldDirection(): Facing | null {
+    const k = this.keys;
+    const held: Facing[] = [];
+    if (k.left.isDown || k.a.isDown) held.push('left');
+    if (k.right.isDown || k.d.isDown) held.push('right');
+    if (k.up.isDown || k.w.isDown) held.push('up');
+    if (k.down.isDown || k.s.isDown) held.push('down');
+    // Joystick: whichever axis is pushed further.
+    if (Math.hypot(touch.dx, touch.dy) > 0.3) {
+      held.push(Math.abs(touch.dx) > Math.abs(touch.dy) ? (touch.dx < 0 ? 'left' : 'right') : touch.dy < 0 ? 'up' : 'down');
+    }
+    this.heldOrder = this.heldOrder.filter(d => held.includes(d));
+    for (const d of held) if (!this.heldOrder.includes(d)) this.heldOrder.push(d);
+    return this.heldOrder[this.heldOrder.length - 1] ?? null;
+  }
+
+  /** Can the player walk onto this tile? Walls, water, trees and people block it. */
+  private canEnter(x: number, y: number): boolean {
+    if (x < 0 || y < 0 || x >= this.def.w || y >= this.def.h) return false;
+    const tile = this.layer.getTileAt(x, y);
+    if (!tile || tile.collides) return false;
+    return !this.npcs.some(n => Math.floor(n.sprite.x / TILE) === x && Math.floor((n.sprite.y + 4) / TILE) === y);
+  }
+
+  private stepPlayer(delta: number, now: number, dir: Facing | null): void {
+    if (this.step) {
+      this.step.t += delta / this.step.ms;
+      if (this.step.t < 1) return;
+      const leftover = (this.step.t - 1) * this.step.ms;
+      this.grid = { x: this.step.tx, y: this.step.ty };
+      this.step = undefined;
+      if (this.arrive()) return;
+      // Keep walking without a pause if a direction is still held (turning corners included).
+      if (dir) {
+        this.facing = dir;
+        this.tryStep(dir, leftover);
+      }
+      return;
+    }
+    if (!dir) return;
+    if (dir !== this.facing) {
+      // Tap to turn on the spot; keep holding to walk that way.
+      this.facing = dir;
+      this.turnUntil = now + TURN_MS;
+      return;
+    }
+    if (now >= this.turnUntil) this.tryStep(dir, 0);
+  }
+
+  private tryStep(dir: Facing, elapsed: number, ms = STEP_MS): boolean {
+    const tx = this.grid.x + DIR[dir].x, ty = this.grid.y + DIR[dir].y;
+    if (!this.canEnter(tx, ty)) return false;
+    this.step = { tx, ty, t: elapsed / ms, ms };
+    return true;
+  }
+
+  /** Arrived on a new tile: doors and exits, then anything pressed during the step. Returns true if leaving the map. */
+  private arrive(): boolean {
+    const { x, y } = this.grid;
+    const w = this.def.warps.find(w => x >= w.x && x < w.x + w.w && y >= w.y && y < w.y + w.h && (!w.requires || flag(w.requires)));
+    if (w) {
+      this.placePlayer();
+      this.travel(w);
+      return true;
+    }
+    const action = this.pendingAction;
+    this.pendingAction = null;
+    if (action === 'talk') this.interact();
+    else if (action === 'use') this.useSelected();
+    return false;
+  }
+
+  /** Puts the sprite where the grid position (and any step in progress) says, with the feet on the tile. */
+  private placePlayer(): void {
+    let gx = this.grid.x, gy = this.grid.y;
+    if (this.step) {
+      const t = Math.min(1, this.step.t);
+      gx += (this.step.tx - gx) * t;
+      gy += (this.step.ty - gy) * t;
+    }
+    this.player.setPosition((gx + 0.5) * TILE, (gy + 0.5) * TILE - (this.currentSkin === 'suit' ? 5 : 7));
+    this.pbody().updateFromGameObject();
+  }
+
+  /** Moves the player to a tile instantly (used by tests and debugging). */
+  teleport(x: number, y: number): void {
+    this.grid = { x, y };
+    this.step = undefined;
+    this.placePlayer();
   }
 
   private tickClock(delta: number): void {
@@ -373,15 +466,6 @@ export class WorldScene extends Phaser.Scene {
         return;
       }
     }
-  }
-
-  private updateFacing(vx: number, vy: number): void {
-    if (!vx && !vy) return;
-    const h: Facing = vx < 0 ? 'left' : 'right';
-    const v: Facing = vy < 0 ? 'up' : 'down';
-    if (vx && !vy) this.facing = h;
-    else if (vy && !vx) this.facing = v;
-    else if (this.facing !== h && this.facing !== v) this.facing = v;
   }
 
   /**
@@ -401,16 +485,11 @@ export class WorldScene extends Phaser.Scene {
   }
 
   /** The farmer is a 32x32 frame and the slime suit 16x16, so the feet sit in different places. */
-  private applySkinBody(keepFeet = false): void {
+  private applySkinBody(): void {
     const b = this.pbody();
-    const feet = b.bottom;
-    if (this.skin() === 'suit') b.setSize(10, 6).setOffset(3, 10);
+    if (this.currentSkin === 'suit') b.setSize(10, 6).setOffset(3, 10);
     else b.setSize(10, 6).setOffset(11, 20);
-    if (keepFeet) {
-      // Keep the feet where they were, so swapping skins doesn't push the player into a wall.
-      this.player.y += feet - (this.player.y - this.player.displayOriginY + b.offset.y + b.height);
-      b.updateFromGameObject();
-    }
+    this.placePlayer();
   }
 
   /** The pack's sideways frames face left; the slime suit's face right. */
@@ -453,13 +532,6 @@ export class WorldScene extends Phaser.Scene {
 
   private cycleItem(step: number): void {
     state.selected = (state.selected + step + HOTBAR_SIZE) % HOTBAR_SIZE;
-  }
-
-  private checkWarps(): void {
-    const b = this.pbody();
-    const tx = Math.floor(b.center.x / TILE), ty = Math.floor(b.center.y / TILE);
-    const w = this.def.warps.find(w => tx >= w.x && tx < w.x + w.w && ty >= w.y && ty < w.y + w.h && (!w.requires || flag(w.requires)));
-    if (w) this.travel(w);
   }
 
   private travel(w: Warp): void {
@@ -516,11 +588,12 @@ export class WorldScene extends Phaser.Scene {
 
   // ------------------------------------------------------------------ interaction
 
+  /** The tile in front of the player, and a point inside it a little towards the player. */
   private facingTarget() {
-    const b = this.pbody();
     const d = DIR[this.facing];
-    const px = b.center.x + d.x * 12, py = b.center.y + d.y * 12;
-    return { px, py, tx: Math.floor(px / TILE), ty: Math.floor(py / TILE) };
+    const tx = this.grid.x + d.x, ty = this.grid.y + d.y;
+    const cx = (this.grid.x + 0.5) * TILE, cy = (this.grid.y + 0.5) * TILE;
+    return { px: cx + d.x * 12, py: cy + d.y * 12, tx, ty };
   }
 
   /** Talks, reads, harvests or picks up whatever is in front of the player. Returns true if something happened. */
@@ -789,7 +862,12 @@ export class WorldScene extends Phaser.Scene {
   private killSlime(s: Slime): void {
     state.slimes++;
     this.burst(s.x, s.y + 2, 0x6ad06a, 12);
-    if (Math.random() < 0.8) this.addPickup(s.x, s.y + 2, 'gel');
+    if (Math.random() < 0.8) {
+      // Drop it in the middle of a walkable tile, so you can step onto it.
+      const tx = Math.floor(s.x / TILE), ty = Math.floor((s.y + 4) / TILE);
+      const spot = [[0, 0], [0, 1], [1, 0], [-1, 0], [0, -1]].map(([dx, dy]) => ({ x: tx + dx, y: ty + dy })).find(p => this.canEnter(p.x, p.y));
+      if (spot) this.addPickup((spot.x + 0.5) * TILE, (spot.y + 0.5) * TILE - 2, 'gel');
+    }
     this.removeSlime(s);
     if (state.slimes % 10 === 0) ui.toast(`${state.slimes} slimes defeated! Mayor Orla will be pleased.`);
   }
@@ -801,9 +879,11 @@ export class WorldScene extends Phaser.Scene {
     state.hp--;
     this.invulnUntil = now + 1000;
     const dx = this.player.x - s.x, dy = this.player.y - s.y;
-    const len = Math.hypot(dx, dy) || 1;
-    this.pbody().setVelocity((dx / len) * 170, (dy / len) * 170);
-    this.knockUntil = now + 160;
+    // Knocked back one tile, away from whatever hit you, if there's room.
+    if (!this.step) {
+      const away: Facing = Math.abs(dx) > Math.abs(dy) ? (dx < 0 ? 'left' : 'right') : dy < 0 ? 'up' : 'down';
+      this.tryStep(away, 0, 110);
+    }
     if (s instanceof Slime) s.knock(-dx, -dy, now, 90);
     this.cameras.main.shake(120, 0.004);
     this.player.setTintFill(0xff6060);
