@@ -293,7 +293,7 @@ export class WorldScene extends Phaser.Scene {
   private intro(): void {
     ui.dialogue({
       lines: [
-        'Welcome to Thistle Farm, in the quiet valley of Hollowbrook.',
+        'Welcome to Thistle Farm, {name}, in the quiet valley of Hollowbrook.',
         'The last farmer packed up years ago, when slimes started creeping out of Mossy Woods.',
         "Now the land is yours. Grow crops, earn some gold, and teach those slimes some manners.",
         ...CONTROLS,
@@ -658,7 +658,7 @@ export class WorldScene extends Phaser.Scene {
         ui.dialogue({
           speaker: 'Bram',
           lines: this.story.shopGreeting()
-            ?? [state.met.includes('bram') ? 'Back again? Have a look.' : "Welcome to Bram's! Seeds, snacks, and the odd trinket. Have a look."],
+            ?? [state.met.includes('bram') ? 'Back again, {name}? Have a look.' : "Welcome to Bram's, {name}! Seeds, snacks, and the odd trinket. Have a look."],
           onClose: () => ui.shop(),
         });
         if (!state.met.includes('bram')) state.met.push('bram');
@@ -784,7 +784,7 @@ export class WorldScene extends Phaser.Scene {
   private openMenu(): void {
     ui.dialogue({
       speaker: 'Menu',
-      lines: [`Day ${state.day}, ${formatTime(state.minutes)}.  Gold: ${state.gold}g.  Slimes defeated: ${state.slimes}.` +
+      lines: [`{name}  -  Day ${state.day}, ${formatTime(state.minutes)}.  Gold: ${state.gold}g.  Slimes defeated: ${state.slimes}.` +
         (goalText() ? `\nGoal: ${goalText()}` : '')],
       choices: [
         { label: 'Resume' },

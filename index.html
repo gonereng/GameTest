@@ -21,6 +21,29 @@
         font: bold 22px monospace; text-align: center; align-items: center; justify-content: center; padding: 24px;
       }
       @media (orientation: portrait) and (pointer: coarse) { #rotate { display: flex; } }
+      .name-overlay {
+        position: fixed; inset: 0; z-index: 20; display: flex; align-items: center; justify-content: center;
+        background: rgba(10, 8, 5, 0.55); padding: 16px; box-sizing: border-box;
+      }
+      .name-box {
+        width: min(440px, 100%); box-sizing: border-box; padding: 22px 22px 18px; border-radius: 12px;
+        background: #2a1b10; border: 3px solid #e8c88a; color: #f4e4b0; font: 16px monospace;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5); display: flex; flex-direction: column; gap: 12px;
+      }
+      .name-box label { font-size: 20px; font-weight: bold; color: #ffe27a; }
+      .name-box input {
+        font: 22px monospace; padding: 10px 12px; border-radius: 8px; border: 2px solid #e8c88a;
+        background: #1a0f08; color: #fff; outline: none; user-select: text; -webkit-user-select: text;
+      }
+      .name-box input:focus { border-color: #ffe27a; box-shadow: 0 0 0 3px rgba(255, 226, 122, 0.25); }
+      .name-hint { margin: 0; font-size: 13px; color: #c8b090; }
+      .name-buttons { display: flex; gap: 10px; justify-content: flex-end; }
+      .name-buttons button {
+        font: bold 16px monospace; padding: 10px 16px; border-radius: 8px; cursor: pointer;
+        border: 2px solid #e8c88a; background: #3a2412; color: #f4e4b0;
+      }
+      .name-buttons .name-ok { background: #5a3a20; color: #ffe27a; }
+      .name-buttons button:disabled { opacity: 0.45; cursor: default; }
     </style>
   </head>
   <body>

@@ -320,6 +320,14 @@ export class UIScene extends Phaser.Scene {
 
   private openDialogue(opts: DialogueOpts): void {
     this.closeDialogue(false);
+    // Any line, speaker or choice can say {name} to use the player's name.
+    const named = (t: string) => t.split('{name}').join(state.playerName || 'Farmer');
+    opts = {
+      ...opts,
+      speaker: opts.speaker && named(opts.speaker),
+      lines: opts.lines.map(named),
+      choices: opts.choices?.map(c => ({ ...c, label: named(c.label) })),
+    };
     const root = this.add.container(0, 0).setDepth(100);
     const gfx = this.add.graphics();
     const text = this.add.text(64, 0, '', { ...textStyle(22), wordWrap: { width: this.W - 140 }, lineSpacing: 6 });

@@ -281,13 +281,13 @@ function buildTown(): MapDef {
         id: 'orla', name: 'Mayor Orla', sprite: 'orla', x: 17, y: 16, facing: 'down',
         show: () => !flag('unmasked') || (flag('launched') && flag('pardoned')),
         intro: [
-          'Oh! You must be the new keeper of Thistle Farm.',
+          'Oh! You must be {name}, the new keeper of Thistle Farm.',
           "I'm Orla, mayor of Hollowbrook. Welcome to the valley!",
           'Fair warning: slimes keep creeping out of Mossy Woods, just south of your farm.',
           'If you thin them out, the whole town will thank you.',
         ],
         chat: [
-          ['Slimes defeated so far: {slimes}. Keep it up!'],
+          ['Slimes defeated so far: {slimes}. Keep it up, {name}!'],
           ["Bram's shop sells seeds. Till the soil, plant, and water every single day."],
           ["Crops only grow on nights after they've been watered. Even moonmelons!"],
           ['Anything you grow, toss it in the shipping bin by your house. Gold, just like that.'],
@@ -296,7 +296,7 @@ function buildTown(): MapDef {
       {
         id: 'pip', name: 'Pip', sprite: 'pip', x: 8, y: 24, facing: 'up',
         intro: [
-          'Hi! Are you a farmer? Do you have any slime gel?',
+          'Hi! Are you {name}? The new farmer? Do you have any slime gel?',
           'Slimes go SQUISH if you bonk them with a sword. Squish!',
         ],
         chat: [

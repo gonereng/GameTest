@@ -27,6 +27,8 @@ export interface GameState {
   /** Forage spots already picked today, keyed by "x,y". */
   forage: Record<string, boolean>;
   slimes: number;
+  /** What the townspeople call you. */
+  playerName: string;
   /** Story progress: see quest.ts for the steps and flags. */
   quest: { step: number; flags: Record<string, boolean>; crashDay: number };
   met: string[];
@@ -60,6 +62,7 @@ export function newGame(): GameState {
     soil: {},
     forage: {},
     slimes: 0,
+    playerName: 'Farmer',
     quest: { step: 0, flags: {}, crashDay: 0 },
     met: [],
     shipped: 0,
@@ -72,8 +75,9 @@ export let state: GameState = newGame();
 /** Facts about the current map that the UI needs. */
 export const runtime = { map: 'house', indoor: true };
 
-export function startNewGame(): void {
+export function startNewGame(playerName = 'Farmer'): void {
   state = newGame();
+  state.playerName = playerName;
 }
 
 export function save(): void {

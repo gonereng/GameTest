@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { BED_SPAWN } from '../maps';
 import { continueGame, loadSave, startNewGame } from '../state';
+import { askName } from '../namePrompt';
 import { T } from '../tiles';
 import { isTouchDevice } from '../touch';
 
@@ -46,8 +47,8 @@ export class TitleScene extends Phaser.Scene {
 
     const save = loadSave();
     this.options = [];
-    if (save) this.options.push({ label: `Continue  (Day ${save.day}, ${save.gold}g)`, run: () => this.begin(false) });
-    this.options.push({ label: save ? 'New Game  (replaces save)' : 'New Game', run: () => this.begin(true) });
+    if (save) this.options.push({ label: `Continue  (${save.playerName}, Day ${save.day}, ${save.gold}g)`, run: () => this.begin(false) });
+    this.options.push({ label: save ? 'New Game  (replaces save)' : 'New Game', run: () => this.newGame() });
 
     this.options.forEach((opt, i) => {
       const t = this.add.text(GAME_W / 2, 390 + i * 46, opt.label, {
@@ -69,6 +70,7 @@ export class TitleScene extends Phaser.Scene {
 
     const kb = this.input.keyboard!;
     kb.on('keydown', (e: KeyboardEvent) => {
+      if (this.naming) return;
       if (['ArrowUp', 'KeyW'].includes(e.code)) this.cursor = (this.cursor + this.options.length - 1) % this.options.length;
       else if (['ArrowDown', 'KeyS'].includes(e.code)) this.cursor = (this.cursor + 1) % this.options.length;
       else if (['Space', 'Enter', 'KeyE', 'KeyJ'].includes(e.code)) { this.options[this.cursor].run(); return; }
@@ -85,8 +87,19 @@ export class TitleScene extends Phaser.Scene {
     });
   }
 
-  private begin(fresh: boolean): void {
-    if (fresh || !continueGame()) startNewGame();
+  private naming = false;
+
+  /** Asks for the player's name, then starts. Backing out returns to the title menu. */
+  private async newGame(): Promise<void> {
+    if (this.naming) return;
+    this.naming = true;
+    const name = await askName(this.input.keyboard);
+    this.naming = false;
+    if (name) this.begin(true, name);
+  }
+
+  private begin(fresh: boolean, name = 'Farmer'): void {
+    if (fresh || !continueGame()) startNewGame(name);
     this.scene.launch('UI');
     this.scene.start('World', { map: 'house', spawn: BED_SPAWN, facing: 'down', intro: fresh, newDay: !fresh });
   }

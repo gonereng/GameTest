@@ -208,7 +208,7 @@ export class Story implements BossHost {
           ? 'Ollie, Rudy and Lars are back in the trench coat at town hall. Everyone knows. Nobody minds.'
           : 'Town hall is empty. There is a sign on the door: "MAYOR WANTED. MUST HAVE LEGS."',
         flag('pet') ? 'A small, happy slime has decided it lives on your farm now. It hums.' : 'Somewhere in the woods, the slimes hum along with the moon.',
-        'THE END... of this story. Your farm is still yours. Keep playing!',
+        'THE END... of this story. Thistle Farm is still yours, {name}. Keep playing!',
       ]));
     }
   }
@@ -280,7 +280,7 @@ export class Story implements BossHost {
           this.scene.time.delayedCall(450, () => bram.clearTint());
         });
       }
-      return ['Nice work with the moon. Professional courtesy.', 'Same time next eclipse?', "(For a moment Bram's eyes glow like two tiny suns. Then the shop just carries on being a shop.)"];
+      return ['Nice work with the moon, {name}. Professional courtesy.', 'Same time next eclipse?', "(For a moment Bram's eyes glow like two tiny suns. Then the shop just carries on being a shop.)"];
     }
     if (step >= Q.FALLEN && !flag('bramLadder')) {
       setFlag('bramLadder');
@@ -368,7 +368,7 @@ export class Story implements BossHost {
       q.step = Q.ASK;
       say(G, [
         'Ah. Hello. Please don\'t eat me.',
-        'I am the Moon. You may call me Gerald.',
+        'I am the Moon. You may call me Gerald. And you are... {name}? Splendid name. Very earthy.',
         'I seem to have fallen into your vegetable. It was the nearest soft thing.',
         'Someone cut my string. The Moonstring. It held me up there for four billion years.',
         `If I am not back up by midnight on Day ${deadlineDay()}, the night will simply... continue. Forever.`,
@@ -455,7 +455,7 @@ export class Story implements BossHost {
     this.w.lockedUntil = this.scene.time.now + 999999;
     const g = this.gerald;
     this.scene.tweens.killTweensOf(g);
-    say('Gerald', ['Thank you, farmer. Do tell the slimes I will hum louder.', 'And if anyone asks: I was never in a turnip.'], {
+    say('Gerald', ['Thank you, {name}. Do tell the slimes I will hum louder.', 'And if anyone asks: I was never in a turnip.'], {
       onClose: () => {
         const cam = this.scene.cameras.main;
         cam.shake(700, 0.01);
