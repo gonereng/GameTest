@@ -293,15 +293,19 @@ export class Story implements BossHost {
   }
 
   /** Sword swing: may reveal the bush or hit the boss. */
-  onSwing(hit: Phaser.Geom.Rectangle, dx: number, dy: number, now: number): void {
+  onSwing(
+    hits: (r: Phaser.Geom.Rectangle) => boolean,
+    away: (x: number, y: number) => { x: number; y: number },
+    now: number,
+  ): void {
     if (this.fakeBush && !flag('bush')) {
-      const r = new Phaser.Geom.Rectangle(FAKE_BUSH.x * TILE, FAKE_BUSH.y * TILE, TILE, TILE);
-      if (Phaser.Geom.Intersects.RectangleToRectangle(hit, r)) this.revealBush();
+      if (hits(new Phaser.Geom.Rectangle(FAKE_BUSH.x * TILE, FAKE_BUSH.y * TILE, TILE, TILE))) this.revealBush();
     }
     if (this.boss?.active && this.boss.visible) {
       const b = this.boss.body as Phaser.Physics.Arcade.Body;
-      if (Phaser.Geom.Intersects.RectangleToRectangle(hit, new Phaser.Geom.Rectangle(b.x, b.y, b.width, b.height))) {
-        this.boss.damage(dx, dy, now);
+      if (hits(new Phaser.Geom.Rectangle(b.x, b.y, b.width, b.height))) {
+        const k = away(b.center.x, b.center.y);
+        this.boss.damage(k.x, k.y, now);
       }
     }
   }

@@ -21,6 +21,8 @@ const DIR: Record<Facing, Point> = {
   down: { x: 0, y: 1 }, up: { x: 0, y: -1 }, left: { x: -1, y: 0 }, right: { x: 1, y: 0 },
 };
 const SLASH_ANGLE: Record<Facing, number> = { right: 0, down: 90, left: 180, up: -90 };
+/** How far the sword reaches from the middle of the player's body, in world pixels (1.75 tiles). */
+const SWORD_REACH = 28;
 const SPEED = 80;
 /** Real milliseconds per in-game minute. A full day (6 AM to 2 AM) is about 14 minutes. */
 const MS_PER_MINUTE = 700;
@@ -129,8 +131,10 @@ export class WorldScene extends Phaser.Scene {
     this.story.create();
 
     const cam = this.cameras.main;
-    cam.setBounds(0, 0, W, H);
     cam.setZoom(ZOOM);
+    this.fitCameraBounds();
+    this.scale.on(Phaser.Scale.Events.RESIZE, this.fitCameraBounds, this);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.scale.off(Phaser.Scale.Events.RESIZE, this.fitCameraBounds, this));
     cam.startFollow(this.player, true);
     cam.setBackgroundColor('#1a1410');
     cam.fadeIn(250, 0, 0, 0);
@@ -377,6 +381,18 @@ export class WorldScene extends Phaser.Scene {
     if (vx && !vy) this.facing = h;
     else if (vy && !vx) this.facing = v;
     else if (this.facing !== h && this.facing !== v) this.facing = v;
+  }
+
+  /**
+   * Keeps the camera inside the map. If the screen is wider or taller than the map (small rooms on wide
+   * phones), the bounds grow evenly on both sides so the room stays centred instead of hugging one edge.
+   */
+  private fitCameraBounds(): void {
+    const cam = this.cameras.main;
+    const mapW = this.def.w * TILE, mapH = this.def.h * TILE;
+    const viewW = cam.width / cam.zoom, viewH = cam.height / cam.zoom;
+    const bw = Math.max(mapW, viewW), bh = Math.max(mapH, viewH);
+    cam.setBounds((mapW - bw) / 2, (mapH - bh) / 2, bw, bh);
   }
 
   private skin(): 'farmer' | 'suit' {
@@ -714,17 +730,56 @@ export class WorldScene extends Phaser.Scene {
     this.lockedUntil = now + 180;
     const d = DIR[this.facing];
     const b = this.pbody();
-    const cx = b.center.x + d.x * 11, cy = b.center.y - 4 + d.y * 11;
-    const slash = this.add.image(cx, cy, 'slash').setAngle(SLASH_ANGLE[this.facing]).setDepth(this.player.depth + 1);
-    this.tweens.add({ targets: slash, alpha: 0, scale: 1.25, duration: 180, onComplete: () => slash.destroy() });
+    // The swing covers a half circle in front of the player, centred on the middle of their body.
+    const ox = b.center.x, oy = b.center.y - 4;
+    this.slashArc(ox, oy, SLASH_ANGLE[this.facing]);
 
-    const hit = new Phaser.Geom.Rectangle(cx - 11, cy - 11, 22, 22);
-    this.story.onSwing(hit, d.x, d.y, now);
+    const hits = (r: Phaser.Geom.Rectangle): boolean => {
+      // Close enough: the nearest point of the target is within reach.
+      const nx = Phaser.Math.Clamp(ox, r.left, r.right), ny = Phaser.Math.Clamp(oy, r.top, r.bottom);
+      if (Math.hypot(nx - ox, ny - oy) > SWORD_REACH) return false;
+      // In front: at least part of the target is on the facing side of the player (180 degrees).
+      const fx = d.x >= 0 ? r.right : r.left, fy = d.y >= 0 ? r.bottom : r.top;
+      return (fx - ox) * d.x + (fy - oy) * d.y >= 0;
+    };
+    // Knock targets straight away from the player, whichever side of the arc they were on.
+    const away = (x: number, y: number) => {
+      const len = Math.hypot(x - ox, y - oy) || 1;
+      return { x: (x - ox) / len, y: (y - oy) / len };
+    };
+    this.story.onSwing(hits, away, now);
     for (const s of [...this.slimes]) {
       const sb = s.body as Body;
-      if (!Phaser.Geom.Intersects.RectangleToRectangle(hit, new Phaser.Geom.Rectangle(sb.x, sb.y, sb.width, sb.height))) continue;
-      if (s.damage(d.x, d.y, now)) this.killSlime(s);
+      if (!hits(new Phaser.Geom.Rectangle(sb.x, sb.y, sb.width, sb.height))) continue;
+      const k = away(sb.center.x, sb.center.y);
+      if (s.damage(k.x, k.y, now)) this.killSlime(s);
     }
+  }
+
+  /** A white arc that sweeps 180 degrees around the player, with the sword riding along its edge. */
+  private slashArc(x: number, y: number, facingDeg: number): void {
+    const g = this.add.graphics().setDepth(this.player.depth + 1);
+    const sword = this.add.image(x, y, 'items', 'sword').setDepth(this.player.depth + 2);
+    const start = Phaser.Math.DegToRad(facingDeg - 90);
+    const sweep = { t: 0 };
+    const r = SWORD_REACH - 6;
+    const draw = () => {
+      const end = start + Math.PI * sweep.t;
+      g.clear();
+      g.lineStyle(7, 0xdcefff, 0.35).beginPath().arc(x, y, r, start, end).strokePath();
+      g.lineStyle(3, 0xffffff, 0.95).beginPath().arc(x, y, r + 2, Math.max(start, end - 1.2), end).strokePath();
+      sword.setPosition(x + Math.cos(end) * (r - 6), y + Math.sin(end) * (r - 6));
+      // The sword icon points up-right (-45 degrees); turn it to point outward along the swing.
+      sword.setRotation(end + Math.PI / 4);
+    };
+    draw();
+    this.tweens.add({
+      targets: sweep, t: 1, duration: 150, ease: 'Quad.out', onUpdate: draw,
+      onComplete: () => {
+        sword.destroy();
+        this.tweens.add({ targets: g, alpha: 0, duration: 120, onComplete: () => g.destroy() });
+      },
+    });
   }
 
   private killSlime(s: Slime): void {

@@ -1,5 +1,4 @@
 import Phaser from 'phaser';
-import { GAME_H, GAME_W } from './config';
 import { HOTBAR_SIZE, state } from './state';
 import { modal } from './bus';
 import { toggleFullscreen } from './fullscreen';
@@ -26,10 +25,12 @@ export function isTouchDevice(): boolean {
   return typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
 }
 
-const STICK_HOME = { x: 120, y: 462 };
+/** Default joystick spot, measured from the bottom-left corner. */
+const STICK_FROM_CORNER = { x: 120, y: 178 };
 const STICK_R = 58;
 
-interface Button { x: number; y: number; r: number; gfx: Phaser.GameObjects.Graphics; label?: Phaser.GameObjects.Text; down: boolean }
+interface Button { x: number; y: number; r: number; color: number; gfx: Phaser.GameObjects.Graphics; label?: Phaser.GameObjects.Text; down: boolean }
+type HotbarRect = { x: number; y: number; slot: number; gap: number };
 
 /** On-screen joystick and buttons, drawn in the UI scene. */
 export class TouchControls {
@@ -37,24 +38,27 @@ export class TouchControls {
   private base: Phaser.GameObjects.Graphics;
   private knob: Phaser.GameObjects.Graphics;
   private stickId: number | null = null;
-  private origin = { ...STICK_HOME };
+  private home = { x: 120, y: 462 };
+  private origin = { x: 120, y: 462 };
+  private size = { w: 960, h: 640 };
   private use: Button;
   private talk: Button;
   private menu: Button;
   private full: Button;
+  private icons: Phaser.GameObjects.Graphics;
 
-  constructor(private scene: Phaser.Scene, private hotbar: { x: number; y: number; slot: number; gap: number }) {
+  constructor(private scene: Phaser.Scene, private hotbar: () => HotbarRect) {
     scene.input.addPointer(3);
     this.root = scene.add.container(0, 0).setDepth(80);
     this.base = scene.add.graphics();
     this.knob = scene.add.graphics();
-    this.drawStick();
-    this.use = this.button(844, 470, 50, 'USE', 0xe8c040);
-    this.talk = this.button(736, 520, 40, 'TALK', 0x7fb4f2);
-    this.menu = this.button(GAME_W / 2 - 34, 30, 22);
-    this.full = this.button(GAME_W / 2 + 34, 30, 22);
-    this.drawIcons();
-    this.root.add([this.base, this.knob]);
+    this.use = this.button(50, 'USE', 0xe8c040);
+    this.talk = this.button(40, 'TALK', 0x7fb4f2);
+    this.menu = this.button(22);
+    this.full = this.button(22);
+    this.icons = scene.add.graphics();
+    this.root.add([this.icons, this.base, this.knob]);
+    this.layout(scene.scale.width, scene.scale.height);
 
     scene.input.on('pointerdown', this.onDown, this);
     scene.input.on('pointermove', this.onMove, this);
@@ -74,19 +78,26 @@ export class TouchControls {
     this.root.setAlpha(modal.open ? 0.25 : 1);
   }
 
-  private button(x: number, y: number, r: number, text?: string, color = 0xffffff): Button {
+  /** Positions the controls relative to the screen edges. */
+  layout(w: number, h: number): void {
+    this.size = { w, h };
+    this.home = { x: STICK_FROM_CORNER.x, y: h - STICK_FROM_CORNER.y };
+    if (this.stickId === null) this.origin = { ...this.home };
+    const place = (b: Button, x: number, y: number) => { b.x = x; b.y = y; b.label?.setPosition(x, y); this.redraw(b); };
+    place(this.use, w - 116, h - 170);
+    place(this.talk, w - 224, h - 120);
+    place(this.menu, w / 2 - 34, 30);
+    place(this.full, w / 2 + 34, 30);
+    this.drawIcons();
+    this.drawStick();
+  }
+
+  private button(r: number, text?: string, color = 0xffffff): Button {
     const gfx = this.scene.add.graphics();
-    const b: Button = { x, y, r, gfx, down: false };
-    const draw = () => {
-      gfx.clear();
-      gfx.fillStyle(0x1a0f08, b.down ? 0.75 : 0.45).fillCircle(x, y, r);
-      gfx.lineStyle(3, color, b.down ? 1 : 0.8).strokeCircle(x, y, r);
-    };
-    (b as Button & { draw: () => void }).draw = draw;
-    draw();
+    const b: Button = { x: 0, y: 0, r, color, gfx, down: false };
     this.root.add(gfx);
     if (text) {
-      b.label = this.scene.add.text(x, y, text, {
+      b.label = this.scene.add.text(0, 0, text, {
         fontFamily: 'monospace', fontSize: `${Math.round(r * 0.42)}px`, fontStyle: 'bold',
         color: `#${color.toString(16).padStart(6, '0')}`, stroke: '#1a0f08', strokeThickness: 4,
       }).setOrigin(0.5);
@@ -96,11 +107,13 @@ export class TouchControls {
   }
 
   private redraw(b: Button): void {
-    (b as Button & { draw: () => void }).draw();
+    b.gfx.clear();
+    b.gfx.fillStyle(0x1a0f08, b.down ? 0.75 : 0.45).fillCircle(b.x, b.y, b.r);
+    b.gfx.lineStyle(3, b.color, b.down ? 1 : 0.8).strokeCircle(b.x, b.y, b.r);
   }
 
   private drawIcons(): void {
-    const g = this.scene.add.graphics();
+    const g = this.icons.clear();
     g.fillStyle(0xf4e4b0, 1);
     const m = this.menu;
     for (const dy of [-7, 0, 7]) g.fillRect(m.x - 10, m.y + dy - 1.5, 20, 3);
@@ -111,7 +124,6 @@ export class TouchControls {
       g.lineBetween(cx, cy, cx - sx * 6, cy);
       g.lineBetween(cx, cy, cx, cy - sy * 6);
     }
-    this.root.add(g);
   }
 
   private drawStick(): void {
@@ -143,12 +155,12 @@ export class TouchControls {
     if (this.hit(this.menu, p)) { touch.menu = true; return; }
     if (this.hit(this.use, p)) { touch.use = true; this.press(this.use); return; }
     if (this.hit(this.talk, p)) { touch.talk = true; this.press(this.talk); return; }
-    const hb = this.hotbar;
+    const hb = this.hotbar();
     if (p.y >= hb.y && p.y <= hb.y + hb.slot && p.x >= hb.x) {
       const i = Math.floor((p.x - hb.x) / (hb.slot + hb.gap));
       if (i >= 0 && i < HOTBAR_SIZE) { state.selected = i; return; }
     }
-    if (this.stickId === null && p.x < GAME_W * 0.45 && p.y > GAME_H * 0.3) {
+    if (this.stickId === null && p.x < this.size.w * 0.45 && p.y > this.size.h * 0.3) {
       this.stickId = p.id;
       this.origin = { x: p.x, y: p.y };
       this.drawStick();
@@ -180,7 +192,7 @@ export class TouchControls {
     this.stickId = null;
     touch.dx = 0;
     touch.dy = 0;
-    this.origin = { ...STICK_HOME };
+    this.origin = { ...this.home };
     this.drawStick();
   }
 }

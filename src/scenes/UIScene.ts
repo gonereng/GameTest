@@ -1,5 +1,4 @@
 import Phaser from 'phaser';
-import { GAME_H, GAME_W } from '../config';
 import { ITEMS, type ItemId } from '../items';
 import { HOTBAR_SIZE, addItem, formatTime, runtime, state } from '../state';
 import { bus, modal, type DialogueOpts } from '../bus';
@@ -57,6 +56,9 @@ export class UIScene extends Phaser.Scene {
   private lastItemId: string | null = null;
   private locText!: Phaser.GameObjects.Text;
   private toasts: Phaser.GameObjects.Text[] = [];
+  private hudGfx!: Phaser.GameObjects.Graphics;
+  private energyLabel!: Phaser.GameObjects.Text;
+  private slotNums: Phaser.GameObjects.Text[] = [];
   private moon!: Phaser.GameObjects.Image;
   private goalGfx!: Phaser.GameObjects.Graphics;
   private goalText!: Phaser.GameObjects.Text;
@@ -93,39 +95,29 @@ export class UIScene extends Phaser.Scene {
     this.shop = undefined;
     modal.open = false;
 
-    this.night = this.add.rectangle(0, 0, GAME_W, GAME_H, 0x0a1030, 1).setOrigin(0).setAlpha(0);
-    this.moon = this.add.image(GAME_W / 2 - 150, 58, 'moon', 'plain').setScale(2.5).setAlpha(0);
+    this.slotNums = [];
+    this.night = this.add.rectangle(0, 0, 10, 10, 0x0a1030, 1).setOrigin(0).setAlpha(0);
+    this.moon = this.add.image(0, 58, 'moon', 'plain').setScale(2.5).setAlpha(0);
     this.goalGfx = this.add.graphics();
-    this.goalText = this.add.text(GAME_W - 24, 112, '', { ...textStyle(15, '#f4e4b0'), align: 'right', wordWrap: { width: 300 }, lineSpacing: 3 }).setOrigin(1, 0);
+    this.goalText = this.add.text(0, 112, '', { ...textStyle(15, '#f4e4b0'), align: 'right', wordWrap: { width: 300 }, lineSpacing: 3 }).setOrigin(1, 0);
     this.lastGoal = '';
 
-    // Top-left: hearts and gold.
-    const g = this.add.graphics();
-    panel(g, 12, 12, 250, 96, 0.7);
+    // Panels are drawn in layout(), because their positions depend on the screen size.
+    this.hudGfx = this.add.graphics();
     this.add.image(26, 84, 'ui', 'coin').setScale(2).setOrigin(0, 0.5);
     this.goldText = this.add.text(64, 84, '', textStyle(22, '#ffe27a')).setOrigin(0, 0.5);
-
-    // Top-right: clock.
-    panel(g, GAME_W - 202, 12, 190, 84, 0.7);
-    this.dayText = this.add.text(GAME_W - 107, 36, '', textStyle(22)).setOrigin(0.5);
-    this.timeText = this.add.text(GAME_W - 107, 70, '', textStyle(24, '#ffe27a')).setOrigin(0.5);
-
-    // Bottom-right: energy.
-    panel(g, GAME_W - 58, GAME_H - 250, 44, 230, 0.7);
-    this.add.text(GAME_W - 36, GAME_H - 232, 'E', textStyle(18, '#9be37a')).setOrigin(0.5);
+    this.dayText = this.add.text(0, 36, '', textStyle(22)).setOrigin(0.5);
+    this.timeText = this.add.text(0, 70, '', textStyle(24, '#ffe27a')).setOrigin(0.5);
+    this.energyLabel = this.add.text(0, 0, 'E', textStyle(18, '#9be37a')).setOrigin(0.5);
     this.energyGfx = this.add.graphics();
-
-    // Bottom: hotbar.
     this.hotbarGfx = this.add.graphics();
-    const x0 = this.hotbarX();
     for (let i = 0; i < HOTBAR_SIZE; i++) {
-      const sx = x0 + i * (SLOT + SLOT_GAP);
-      this.add.text(sx + 5, GAME_H - 72, String((i + 1) % 10), textStyle(12, '#c8b090')).setDepth(2);
-      this.slotIcons.push(this.add.image(sx + SLOT / 2, GAME_H - 74 + SLOT / 2, 'items', 'hoe').setScale(2.6).setDepth(1));
-      this.slotQty.push(this.add.text(sx + SLOT - 4, GAME_H - 22, '', textStyle(16)).setOrigin(1, 1).setDepth(2));
+      this.slotNums.push(this.add.text(0, 0, String((i + 1) % 10), textStyle(12, '#c8b090')).setDepth(2));
+      this.slotIcons.push(this.add.image(0, 0, 'items', 'hoe').setScale(2.6).setDepth(1));
+      this.slotQty.push(this.add.text(0, 0, '', textStyle(16)).setOrigin(1, 1).setDepth(2));
     }
-    this.itemName = this.add.text(GAME_W / 2, GAME_H - 96, '', textStyle(20)).setOrigin(0.5).setAlpha(0);
-    this.locText = this.add.text(GAME_W / 2, 150, '', textStyle(34, '#f4e4b0')).setOrigin(0.5).setAlpha(0);
+    this.itemName = this.add.text(0, 0, '', textStyle(20)).setOrigin(0.5).setAlpha(0);
+    this.locText = this.add.text(0, 150, '', textStyle(34, '#f4e4b0')).setOrigin(0.5).setAlpha(0);
 
     bus.on('toast', this.toast, this);
     bus.on('dialogue', this.openDialogue, this);
@@ -140,14 +132,65 @@ export class UIScene extends Phaser.Scene {
     });
     this.input.keyboard!.on('keydown', (e: KeyboardEvent) => this.onKey(e));
     if (isTouchDevice()) touch.enabled = true;
-    this.touchUI = new TouchControls(this, { x: this.hotbarX(), y: GAME_H - 74, slot: SLOT, gap: SLOT_GAP });
+    this.touchUI = new TouchControls(this, () => ({ x: this.hotbarX(), y: this.H - 74, slot: SLOT, gap: SLOT_GAP }));
+    this.layout();
+    this.scale.on(Phaser.Scale.Events.RESIZE, this.onResize, this);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.scale.off(Phaser.Scale.Events.RESIZE, this.onResize, this));
     this.input.on('pointerdown', () => {
       if (this.dlg && !this.showingChoices() && performance.now() - modal.openedAt > 150) this.advance();
     });
   }
 
+  private get W(): number { return this.scale.width; }
+  private get H(): number { return this.scale.height; }
+
   private hotbarX(): number {
-    return (GAME_W - (HOTBAR_SIZE * SLOT + (HOTBAR_SIZE - 1) * SLOT_GAP)) / 2;
+    return (this.W - (HOTBAR_SIZE * SLOT + (HOTBAR_SIZE - 1) * SLOT_GAP)) / 2;
+  }
+
+  private onResize(): void {
+    this.layout();
+    if (this.dlg) {
+      this.dlg.text.setWordWrapWidth(this.W - 140);
+      this.dlg.hint.setX(this.W - 64);
+      this.renderDialogue();
+    }
+    if (this.shop) {
+      const cursor = this.shop.cursor;
+      this.closeShop();
+      this.openShop();
+      this.shop!.cursor = cursor;
+      this.renderShop();
+    }
+  }
+
+  /** Places everything anchored to a screen edge. Runs on start and whenever the screen size changes. */
+  private layout(): void {
+    const { W, H } = this;
+    this.night.setSize(W, H);
+    this.moon.setX(W / 2 - 150);
+    this.goalText.setX(W - 24);
+    this.lastGoal = '-'; // force the goal panel to redraw
+    const g = this.hudGfx.clear();
+    panel(g, 12, 12, 250, 96, 0.7);
+    panel(g, W - 202, 12, 190, 84, 0.7);
+    panel(g, W - 58, H - 250, 44, 230, 0.7);
+    this.dayText.setX(W - 107);
+    this.timeText.setX(W - 107);
+    this.energyLabel.setPosition(W - 36, H - 232);
+    this.lastEnergy = -1;
+    const x0 = this.hotbarX();
+    for (let i = 0; i < HOTBAR_SIZE; i++) {
+      const sx = x0 + i * (SLOT + SLOT_GAP);
+      this.slotNums[i].setPosition(sx + 5, H - 72);
+      this.slotIcons[i].setPosition(sx + SLOT / 2, H - 74 + SLOT / 2);
+      this.slotQty[i].setPosition(sx + SLOT - 4, H - 22);
+    }
+    this.drawHotbar();
+    this.itemName.setPosition(W / 2, H - 96);
+    this.locText.setX(W / 2);
+    this.toasts.forEach(t => t.setX(W / 2));
+    this.touchUI?.layout(W, H);
   }
 
   update(): void {
@@ -181,8 +224,8 @@ export class UIScene extends Phaser.Scene {
       const h = Math.round(186 * ratio);
       const color = ratio > 0.5 ? 0x7ad04a : ratio > 0.2 ? 0xe8c040 : 0xe04a3a;
       this.energyGfx.clear();
-      this.energyGfx.fillStyle(0x120a05, 1).fillRect(GAME_W - 46, GAME_H - 214, 20, 186);
-      this.energyGfx.fillStyle(color, 1).fillRect(GAME_W - 46, GAME_H - 28 - h, 20, h);
+      this.energyGfx.fillStyle(0x120a05, 1).fillRect(this.W - 46, this.H - 214, 20, 186);
+      this.energyGfx.fillStyle(color, 1).fillRect(this.W - 46, this.H - 28 - h, 20, h);
     }
 
     if (this.lastSelected !== state.selected) {
@@ -213,8 +256,8 @@ export class UIScene extends Phaser.Scene {
     this.goalGfx.clear();
     if (!text) return;
     const w = this.goalText.width + 24, h = this.goalText.height + 16;
-    this.goalGfx.fillStyle(PANEL, 0.75).fillRoundedRect(GAME_W - 12 - w, 104, w, h, 8);
-    this.goalGfx.lineStyle(2, 0x9fc8ff, 1).strokeRoundedRect(GAME_W - 12 - w, 104, w, h, 8);
+    this.goalGfx.fillStyle(PANEL, 0.75).fillRoundedRect(this.W - 12 - w, 104, w, h, 8);
+    this.goalGfx.lineStyle(2, 0x9fc8ff, 1).strokeRoundedRect(this.W - 12 - w, 104, w, h, 8);
     this.flash(this.itemName, 'New goal!', 900);
   }
 
@@ -223,7 +266,7 @@ export class UIScene extends Phaser.Scene {
     const x0 = this.hotbarX();
     g.clear();
     for (let i = 0; i < HOTBAR_SIZE; i++) {
-      const sx = x0 + i * (SLOT + SLOT_GAP), sy = GAME_H - 74;
+      const sx = x0 + i * (SLOT + SLOT_GAP), sy = this.H - 74;
       const selected = i === state.selected;
       g.fillStyle(selected ? 0x5a3a20 : PANEL, 0.9).fillRoundedRect(sx, sy, SLOT, SLOT, 8);
       g.lineStyle(selected ? 4 : 2, selected ? 0xffe27a : BORDER, 1).strokeRoundedRect(sx, sy, SLOT, SLOT, 8);
@@ -241,7 +284,7 @@ export class UIScene extends Phaser.Scene {
   }
 
   private toast(text: string): void {
-    const t = this.add.text(GAME_W / 2, 0, text, textStyle(20)).setOrigin(0.5).setDepth(50);
+    const t = this.add.text(this.W / 2, 0, text, textStyle(20)).setOrigin(0.5).setDepth(50);
     this.toasts.push(t);
     this.layoutToasts();
     this.tweens.add({
@@ -266,8 +309,8 @@ export class UIScene extends Phaser.Scene {
     this.closeDialogue(false);
     const root = this.add.container(0, 0).setDepth(100);
     const gfx = this.add.graphics();
-    const text = this.add.text(64, 0, '', { ...textStyle(22), wordWrap: { width: GAME_W - 140 }, lineSpacing: 6 });
-    const hint = this.add.text(GAME_W - 64, 0, touch.enabled ? 'Tap >' : 'Space >', textStyle(16, '#ffe27a')).setOrigin(1, 1);
+    const text = this.add.text(64, 0, '', { ...textStyle(22), wordWrap: { width: this.W - 140 }, lineSpacing: 6 });
+    const hint = this.add.text(this.W - 64, 0, touch.enabled ? 'Tap >' : 'Space >', textStyle(16, '#ffe27a')).setOrigin(1, 1);
     root.add([gfx, text, hint]);
     let name: Phaser.GameObjects.Text | undefined;
     if (opts.speaker) {
@@ -294,9 +337,9 @@ export class UIScene extends Phaser.Scene {
     const choices = this.showingChoices() ? d.opts.choices! : [];
     const textH = Math.max(d.text.height, 28);
     const h = 44 + textH + (choices.length ? 14 + choices.length * 32 : 0) + 18;
-    const top = GAME_H - 96 - h;
+    const top = this.H - 96 - h;
     d.gfx.clear();
-    panel(d.gfx, 40, top, GAME_W - 80, h, 0.94);
+    panel(d.gfx, 40, top, this.W - 80, h, 0.94);
     d.text.setY(top + 26);
     if (d.name) {
       d.gfx.fillStyle(0x5a3a20, 1).fillRoundedRect(52, top - 18, d.name.width + 24, 34, 8);
@@ -345,7 +388,7 @@ export class UIScene extends Phaser.Scene {
 
   private shopRect() {
     const w = 600, h = 170 + this.entries.length * ROW;
-    return { w, h, x: (GAME_W - w) / 2, y: Math.max(12, (GAME_H - h) / 2 - 40) };
+    return { w, h, x: (this.W - w) / 2, y: Math.max(12, (this.H - h) / 2 - 40) };
   }
 
   private openShop(): void {

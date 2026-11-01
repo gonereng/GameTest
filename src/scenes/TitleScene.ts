@@ -1,5 +1,4 @@
 import Phaser from 'phaser';
-import { GAME_H, GAME_W } from '../config';
 import { BED_SPAWN } from '../maps';
 import { continueGame, loadSave, startNewGame } from '../state';
 import { T } from '../tiles';
@@ -13,15 +12,20 @@ export class TitleScene extends Phaser.Scene {
   constructor() { super('Title'); }
 
   create(): void {
+    const GAME_W = this.scale.width, GAME_H = this.scale.height;
+    // Redraw the title screen if the window changes shape (rotating a phone, entering fullscreen).
+    const onResize = () => this.time.delayedCall(50, () => this.scene.isActive() && this.scene.restart());
+    this.scale.once(Phaser.Scale.Events.RESIZE, onResize);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.scale.off(Phaser.Scale.Events.RESIZE, onResize));
     this.cursor = 0;
     this.texts = [];
     const S = 3;
     this.add.tileSprite(0, 0, GAME_W / S, GAME_H / S, 'tiles', `t${T.GRASS}`).setOrigin(0).setScale(S);
     const rnd = new Phaser.Math.RandomDataGenerator(['hollowbrook']);
-    for (let i = 0; i < 40; i++) {
-      const x = rnd.between(0, 19) * 48, y = rnd.between(0, 13) * 48;
+    for (let i = 0; i < Math.round(40 * (GAME_W * GAME_H) / (960 * 640)); i++) {
+      const x = rnd.between(0, Math.ceil(GAME_W / 48)) * 48, y = rnd.between(0, Math.ceil(GAME_H / 48)) * 48;
       const tile = rnd.pick([T.FLOWER, T.FLOWER, T.TREE, T.BUSH]);
-      if (y > 120 && y < 520 && x > 120 && x < 840) continue;
+      if (y > 120 && y < GAME_H - 120 && x > 120 && x < GAME_W - 120) continue;
       if (tile === T.TREE) this.add.image(x + 24, y + 48, 'tf_maple', rnd.pick(['big', 'medium'])).setOrigin(0.5, 1).setScale(S).setDepth(y);
       else this.add.image(x, y, 'tiles', `t${tile}`).setOrigin(0).setScale(S);
     }

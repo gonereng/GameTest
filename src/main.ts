@@ -15,7 +15,8 @@ const game = new Phaser.Game({
   pixelArt: true,
   physics: { default: 'arcade', arcade: { debug: false } },
   input: { activePointers: 3 },
-  scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
+  // EXPAND fills the whole screen: 960x640 is the minimum view, and wider or taller screens see more.
+  scale: { mode: Phaser.Scale.EXPAND, autoCenter: Phaser.Scale.CENTER_BOTH },
   scene: [BootScene, TitleScene, WorldScene, UIScene],
 });
 
