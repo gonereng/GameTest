@@ -1,0 +1,664 @@
+import Phaser from 'phaser';
+import { TILE, ZOOM } from '../config';
+import { BED_SPAWN, getMap, type Facing, type Interactable, type MapDef, type MapId, type NpcDef, type Point, type Warp } from '../maps';
+import { T, SOLID } from '../tiles';
+import { CROPS, ITEMS, type ItemId } from '../items';
+import {
+  DAY_END, HOTBAR_SIZE, addItem, advanceDay, cropStage, formatTime, isMature, removeAt, runtime, save, soilKey, state,
+} from '../state';
+import { modal, ui } from '../bus';
+import { Slime } from '../slime';
+
+type Body = Phaser.Physics.Arcade.Body;
+
+const DIR: Record<Facing, Point> = {
+  down: { x: 0, y: 1 }, up: { x: 0, y: -1 }, left: { x: -1, y: 0 }, right: { x: 1, y: 0 },
+};
+const SLASH_ANGLE: Record<Facing, number> = { right: 0, down: 90, left: 180, up: -90 };
+const SPEED = 80;
+/** Real milliseconds per in-game minute. A full day (6 AM to 2 AM) is about 14 minutes. */
+const MS_PER_MINUTE = 700;
+
+const CONTROLS = [
+  'Move: WASD or arrow keys.',
+  'Space (or J): use the selected item. Facing a crop, sign or person, it interacts instead.',
+  'E (or K): talk, read, harvest, open things.',
+  '1-0, Q or the mouse wheel: pick an item from the hotbar.',
+  'Esc: menu. Sleep in your bed to end the day and save.',
+];
+
+interface WorldArgs {
+  map?: MapId;
+  spawn?: Point;
+  facing?: Facing;
+  intro?: boolean;
+  newDay?: boolean;
+  wake?: string;
+}
+
+interface Npc {
+  def: NpcDef;
+  sprite: Phaser.Physics.Arcade.Sprite;
+  talks: number;
+}
+
+interface Pickup {
+  img: Phaser.GameObjects.Image;
+  id: ItemId;
+  forageKey?: string;
+}
+
+type KeyName = 'up' | 'down' | 'left' | 'right' | 'w' | 'a' | 's' | 'd' | 'space' | 'j' | 'e' | 'k' | 'q' | 'esc';
+
+export class WorldScene extends Phaser.Scene {
+  private args: WorldArgs = {};
+  private def!: MapDef;
+  private layer!: Phaser.Tilemaps.TilemapLayer;
+  private player!: Phaser.Physics.Arcade.Sprite;
+  private keys!: Record<KeyName, Phaser.Input.Keyboard.Key>;
+  private facing: Facing = 'down';
+  private npcs: Npc[] = [];
+  private slimes: Slime[] = [];
+  private pickups: Pickup[] = [];
+  private cropSprites = new Map<string, Phaser.GameObjects.Image>();
+  private lockedUntil = 0;
+  private invulnUntil = 0;
+  private knockUntil = 0;
+  private swingReadyAt = 0;
+  private transitioning = false;
+  private tickAcc = 0;
+
+  constructor() { super('World'); }
+
+  init(args: WorldArgs): void {
+    this.args = args ?? {};
+    this.facing = this.args.facing ?? 'down';
+    this.npcs = [];
+    this.slimes = [];
+    this.pickups = [];
+    this.cropSprites = new Map();
+    this.lockedUntil = 0;
+    this.invulnUntil = 0;
+    this.knockUntil = 0;
+    this.swingReadyAt = 0;
+    this.transitioning = false;
+    this.tickAcc = 0;
+  }
+
+  create(): void {
+    const def = (this.def = getMap(this.args.map ?? 'house'));
+    runtime.map = def.id;
+    runtime.indoor = def.indoor;
+
+    const tilemap = this.make.tilemap({ data: def.tiles.map(r => r.slice()), tileWidth: TILE, tileHeight: TILE });
+    const tileset = tilemap.addTilesetImage('tiles', 'tiles', TILE, TILE, 0, 0)!;
+    this.layer = tilemap.createLayer(0, tileset, 0, 0)!;
+    this.layer.setCollision(SOLID);
+
+    const W = def.w * TILE, H = def.h * TILE;
+    this.physics.world.setBounds(0, 0, W, H);
+
+    // Player
+    const spawn = this.args.spawn ?? def.spawn;
+    this.player = this.physics.add.sprite((spawn.x + 0.5) * TILE, (spawn.y + 0.5) * TILE - 4, 'player', 'down_0');
+    this.pbody().setSize(10, 6).setOffset(3, 10);
+    this.player.setCollideWorldBounds(true);
+    this.physics.add.collider(this.player, this.layer);
+    this.setIdleFrame();
+
+    if (def.farmable) this.buildFarm();
+    this.spawnNpcs();
+    this.spawnSlimes(spawn);
+    this.spawnForage();
+
+    const cam = this.cameras.main;
+    cam.setBounds(0, 0, W, H);
+    cam.setZoom(ZOOM);
+    cam.startFollow(this.player, true);
+    cam.setBackgroundColor('#1a1410');
+    cam.fadeIn(250, 0, 0, 0);
+
+    const kb = this.input.keyboard!;
+    this.keys = kb.addKeys({
+      up: 'UP', down: 'DOWN', left: 'LEFT', right: 'RIGHT', w: 'W', a: 'A', s: 'S', d: 'D',
+      space: 'SPACE', j: 'J', e: 'E', k: 'K', q: 'Q', esc: 'ESC',
+    }) as Record<KeyName, Phaser.Input.Keyboard.Key>;
+    kb.on('keydown', (e: KeyboardEvent) => {
+      if (modal.open) return;
+      const n = '1234567890'.indexOf(e.key);
+      if (n >= 0) state.selected = n;
+    });
+    this.input.on('wheel', (_p: unknown, _o: unknown, _dx: number, dy: number) => {
+      if (!modal.open) this.cycleItem(dy > 0 ? 1 : -1);
+    });
+
+    ui.location(def.name);
+    if (this.args.intro) this.time.delayedCall(500, () => this.intro());
+    else if (this.args.wake) this.time.delayedCall(500, () => ui.dialogue({ lines: [this.args.wake!] }));
+    if (this.args.newDay) this.time.delayedCall(300, () => ui.toast(`Day ${state.day} - Good morning!`));
+  }
+
+  // ------------------------------------------------------------------ setup
+
+  private pbody(): Body { return this.player.body as Body; }
+
+  private buildFarm(): void {
+    for (const [key, soil] of Object.entries(state.soil)) {
+      const [x, y] = key.split(',').map(Number);
+      this.layer.putTileAt(soil.watered ? T.SOIL_WET : T.SOIL, x, y);
+      this.refreshCrop(x, y);
+    }
+  }
+
+  private spawnNpcs(): void {
+    for (const def of this.def.npcs) {
+      const s = this.physics.add.sprite((def.x + 0.5) * TILE, (def.y + 0.5) * TILE - 4, def.sprite, 'down_0');
+      (s.body as Body).setSize(10, 6).setOffset(3, 10);
+      s.setImmovable(true);
+      s.setPushable(false);
+      s.setDepth(s.y + 8);
+      const npc = { def, sprite: s, talks: 0 };
+      this.faceNpc(npc, def.facing);
+      this.physics.add.collider(this.player, s);
+      this.npcs.push(npc);
+    }
+    if (this.npcs.length) {
+      this.time.addEvent({
+        delay: 2600, loop: true, callback: () => {
+          for (const n of this.npcs) {
+            if (n.def.id !== 'bram' && Math.random() < 0.35) {
+              this.faceNpc(n, Phaser.Utils.Array.GetRandom(['down', 'left', 'right', 'up'] as Facing[]));
+            }
+          }
+        },
+      });
+    }
+  }
+
+  private faceNpc(n: Npc, f: Facing): void {
+    const dir = f === 'left' || f === 'right' ? 'side' : f;
+    n.sprite.setFrame(`${dir}_0`);
+    n.sprite.setFlipX(f === 'left');
+  }
+
+  private spawnSlimes(spawn: Point): void {
+    if (!this.def.slimes) return;
+    const spots = this.def.open.filter(p => Math.abs(p.x - spawn.x) + Math.abs(p.y - spawn.y) > 9);
+    for (let i = 0; i < this.def.slimes && spots.length; i++) {
+      const p = spots.splice(Phaser.Math.Between(0, spots.length - 1), 1)[0];
+      this.slimes.push(new Slime(this, (p.x + 0.5) * TILE, (p.y + 0.5) * TILE - 4));
+    }
+    this.physics.add.collider(this.slimes, this.layer);
+    this.physics.add.collider(this.slimes, this.slimes);
+    this.physics.add.overlap(this.player, this.slimes, (_p, s) => this.hurtPlayer(s as Slime));
+  }
+
+  private spawnForage(): void {
+    for (const p of this.def.forage) {
+      const key = soilKey(p.x, p.y);
+      if (state.forage[key]) continue;
+      // Which item grows here changes from day to day.
+      const id: ItemId = (p.x * 7 + p.y * 13 + state.day) % 3 === 0 ? 'mushroom' : 'berry';
+      this.addPickup((p.x + 0.5) * TILE, (p.y + 0.5) * TILE, id, key);
+    }
+  }
+
+  private addPickup(x: number, y: number, id: ItemId, forageKey?: string): void {
+    const img = this.add.image(x, y, 'items', id).setDepth(y + 4);
+    this.tweens.add({ targets: img, y: y - 2, yoyo: true, repeat: -1, duration: 700 + Math.random() * 300, ease: 'Sine.inOut' });
+    this.pickups.push({ img, id, forageKey });
+  }
+
+  private intro(): void {
+    ui.dialogue({
+      lines: [
+        'Welcome to Thistle Farm, in the quiet valley of Hollowbrook.',
+        'The last farmer packed up years ago, when slimes started creeping out of Mossy Woods.',
+        "Now the land is yours. Grow crops, earn some gold, and teach those slimes some manners.",
+        ...CONTROLS,
+        'Tip: till grass with the Hoe, plant Carrot Seeds, and water them. Ship crops in the bin outside.',
+      ],
+    });
+  }
+
+  // ------------------------------------------------------------------ loop
+
+  update(_time: number, delta: number): void {
+    const k = this.keys;
+    // Always read "just pressed" so presses made while a dialogue is open are discarded.
+    const pressUse = Phaser.Input.Keyboard.JustDown(k.space) || Phaser.Input.Keyboard.JustDown(k.j);
+    const pressTalk = Phaser.Input.Keyboard.JustDown(k.e) || Phaser.Input.Keyboard.JustDown(k.k);
+    const pressNext = Phaser.Input.Keyboard.JustDown(k.q);
+    const pressMenu = Phaser.Input.Keyboard.JustDown(k.esc);
+
+    const body = this.pbody();
+    if (this.transitioning) { body.setVelocity(0, 0); return; }
+
+    const now = this.time.now;
+    const paused = modal.open;
+    if (!paused) {
+      this.tickClock(delta);
+      if (this.transitioning) return;
+    }
+
+    let vx = 0, vy = 0;
+    if (!paused && now >= this.lockedUntil) {
+      if (k.left.isDown || k.a.isDown) vx -= 1;
+      if (k.right.isDown || k.d.isDown) vx += 1;
+      if (k.up.isDown || k.w.isDown) vy -= 1;
+      if (k.down.isDown || k.s.isDown) vy += 1;
+    }
+    if (now >= this.knockUntil) {
+      const len = Math.hypot(vx, vy);
+      body.setVelocity(len ? (vx / len) * SPEED : 0, len ? (vy / len) * SPEED : 0);
+    }
+    this.updateFacing(vx, vy);
+    if (vx || vy) {
+      this.player.anims.play(`player_${this.facing === 'left' || this.facing === 'right' ? 'side' : this.facing}`, true);
+      this.player.setFlipX(this.facing === 'left');
+    } else {
+      this.setIdleFrame();
+    }
+
+    const inputOk = !paused && now >= this.lockedUntil && performance.now() - modal.closedAt > 150;
+    if (inputOk) {
+      if (pressMenu) this.openMenu();
+      else if (pressTalk) this.interact();
+      else if (pressUse) this.useSelected();
+      else if (pressNext) this.cycleItem(1);
+    }
+
+    for (const s of this.slimes) s.think(now, this.player, paused);
+    this.checkPickups();
+
+    this.player.setDepth(this.player.y + 8);
+    this.player.setAlpha(now < this.invulnUntil && Math.floor(now / 90) % 2 ? 0.35 : 1);
+
+    if (!paused) this.checkWarps();
+  }
+
+  private tickClock(delta: number): void {
+    this.tickAcc += delta;
+    while (this.tickAcc >= MS_PER_MINUTE) {
+      this.tickAcc -= MS_PER_MINUTE;
+      state.minutes++;
+      if (state.minutes === 24 * 60) ui.toast("It's midnight. You should head to bed soon.");
+      if (state.minutes >= DAY_END) {
+        this.endDay(true, "It's 2 AM... you collapse from exhaustion. Somehow you wake up in bed, still tired.");
+        return;
+      }
+    }
+  }
+
+  private updateFacing(vx: number, vy: number): void {
+    if (!vx && !vy) return;
+    const h: Facing = vx < 0 ? 'left' : 'right';
+    const v: Facing = vy < 0 ? 'up' : 'down';
+    if (vx && !vy) this.facing = h;
+    else if (vy && !vx) this.facing = v;
+    else if (this.facing !== h && this.facing !== v) this.facing = v;
+  }
+
+  private setIdleFrame(): void {
+    const dir = this.facing === 'left' || this.facing === 'right' ? 'side' : this.facing;
+    this.player.anims.stop();
+    this.player.setFrame(`${dir}_0`);
+    this.player.setFlipX(this.facing === 'left');
+  }
+
+  private cycleItem(step: number): void {
+    state.selected = (state.selected + step + HOTBAR_SIZE) % HOTBAR_SIZE;
+  }
+
+  private checkWarps(): void {
+    const b = this.pbody();
+    const tx = Math.floor(b.center.x / TILE), ty = Math.floor(b.center.y / TILE);
+    const w = this.def.warps.find(w => tx >= w.x && tx < w.x + w.w && ty >= w.y && ty < w.y + w.h);
+    if (w) this.travel(w);
+  }
+
+  private travel(w: Warp): void {
+    this.transitioning = true;
+    this.pbody().setVelocity(0, 0);
+    this.player.anims.stop();
+    this.cameras.main.fadeOut(200, 0, 0, 0);
+    this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
+      this.scene.restart({ map: w.to, spawn: { x: w.tx, y: w.ty }, facing: w.facing });
+    });
+  }
+
+  /** Ends the day: everything grows, the game saves, and you wake up at home. */
+  private endDay(passedOut: boolean, wake?: string): void {
+    this.transitioning = true;
+    this.pbody().setVelocity(0, 0);
+    this.cameras.main.fadeOut(passedOut ? 900 : 600, 0, 0, 0);
+    this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
+      advanceDay(passedOut);
+      save();
+      this.scene.restart({ map: 'house', spawn: BED_SPAWN, facing: 'down', wake, newDay: true });
+    });
+  }
+
+  // ------------------------------------------------------------------ interaction
+
+  private facingTarget() {
+    const b = this.pbody();
+    const d = DIR[this.facing];
+    const px = b.center.x + d.x * 12, py = b.center.y + d.y * 12;
+    return { px, py, tx: Math.floor(px / TILE), ty: Math.floor(py / TILE) };
+  }
+
+  /** Talks, reads, harvests or picks up whatever is in front of the player. Returns true if something happened. */
+  private interact(): boolean {
+    const t = this.facingTarget();
+    for (const n of this.npcs) {
+      if (Phaser.Math.Distance.Between(t.px, t.py, n.sprite.x, n.sprite.y + 4) < 13) {
+        this.talk(n);
+        return true;
+      }
+    }
+    const it = this.def.interact.find(i => i.x === t.tx && i.y === t.ty);
+    if (it) { this.useInteractable(it); return true; }
+    const soil = this.def.farmable ? state.soil[soilKey(t.tx, t.ty)] : undefined;
+    if (soil?.crop && isMature(soil)) { this.harvest(t.tx, t.ty); return true; }
+    const p = this.pickups.find(p => Phaser.Math.Distance.Between(t.px, t.py, p.img.x, p.img.y) < 10);
+    if (p) { this.collect(p); return true; }
+    return false;
+  }
+
+  private talk(n: Npc): void {
+    const dx = this.player.x - n.sprite.x, dy = this.player.y - n.sprite.y;
+    this.faceNpc(n, Math.abs(dx) > Math.abs(dy) ? (dx < 0 ? 'left' : 'right') : dy < 0 ? 'up' : 'down');
+    let lines: string[];
+    if (!state.met.includes(n.def.id)) {
+      state.met.push(n.def.id);
+      lines = n.def.intro;
+    } else {
+      lines = n.def.chat[(state.day + n.talks) % n.def.chat.length];
+      n.talks++;
+    }
+    lines = lines.map(l => l.replace('{slimes}', String(state.slimes)).replace('{day}', String(state.day)));
+    ui.dialogue({ speaker: n.def.name, lines });
+  }
+
+  private useInteractable(it: Interactable): void {
+    switch (it.kind) {
+      case 'bed':
+        ui.dialogue({
+          lines: [`Your bed. It's ${formatTime(state.minutes)}.`],
+          choices: [
+            { label: 'Sleep (end the day and save)', action: () => this.endDay(false) },
+            { label: 'Not yet' },
+          ],
+        });
+        break;
+      case 'bin':
+        this.ship();
+        break;
+      case 'shop':
+        ui.dialogue({
+          speaker: 'Bram',
+          lines: [state.met.includes('bram') ? 'Back again? Have a look.' : "Welcome to Bram's! Seeds, snacks, and the odd trinket. Have a look."],
+          onClose: () => ui.shop(),
+        });
+        if (!state.met.includes('bram')) state.met.push('bram');
+        break;
+      case 'sign':
+        ui.dialogue({ lines: it.lines ?? [] });
+        break;
+      case 'locked':
+        ui.dialogue({ lines: ["It's locked. Nobody's expecting visitors."] });
+        break;
+    }
+  }
+
+  private ship(): void {
+    let total = 0, count = 0;
+    state.inventory.forEach(s => {
+      const def = s && ITEMS[s.id];
+      if (s && def?.sell && ['produce', 'material', 'forage'].includes(def.kind)) {
+        total += def.sell * s.qty;
+        count += s.qty;
+      }
+    });
+    if (!count) {
+      ui.dialogue({ speaker: 'Shipping Bin', lines: ['Crops, forage and slime gel go in here. The buyer pays right away.', 'You have nothing to ship right now.'] });
+      return;
+    }
+    ui.dialogue({
+      speaker: 'Shipping Bin',
+      lines: [`Ship ${count} item${count > 1 ? 's' : ''} for ${total}g?`],
+      choices: [
+        {
+          label: `Ship everything (+${total}g)`,
+          action: () => {
+            state.inventory.forEach((s, i) => {
+              const def = s && ITEMS[s.id];
+              if (s && def?.sell && ['produce', 'material', 'forage'].includes(def.kind)) state.inventory[i] = null;
+            });
+            state.gold += total;
+            state.shipped += total;
+            ui.toast(`+${total}g`);
+          },
+        },
+        { label: 'Keep them' },
+      ],
+    });
+  }
+
+  private useSelected(): void {
+    if (this.interact()) return;
+    const slot = state.selected;
+    const stack = state.inventory[slot];
+    if (!stack) return;
+    const item = ITEMS[stack.id];
+    if (stack.id === 'hoe') this.useHoe();
+    else if (stack.id === 'can') this.useCan();
+    else if (stack.id === 'sword') this.swingSword();
+    else if (item.kind === 'seed') this.plant(slot);
+    else if (item.energy || item.heal) this.offerEat(slot);
+  }
+
+  private spend(cost: number): boolean {
+    if (state.energy < cost) {
+      ui.toast("You're too tired. Eat something or get some sleep.");
+      return false;
+    }
+    state.energy -= cost;
+    return true;
+  }
+
+  private useHoe(): void {
+    const t = this.facingTarget();
+    this.toolAnim('hoe', t.px, t.py);
+    if (!this.def.farmable) { ui.toast('The ground here is too hard. Till on your farm.'); return; }
+    const tile = this.layer.getTileAt(t.tx, t.ty);
+    const key = soilKey(t.tx, t.ty);
+    if (!tile || (tile.index !== T.GRASS && tile.index !== T.FLOWER) || state.soil[key]) return;
+    if (!this.spend(2)) return;
+    state.soil[key] = { watered: false };
+    this.layer.putTileAt(T.SOIL, t.tx, t.ty);
+    this.burst((t.tx + 0.5) * TILE, (t.ty + 0.5) * TILE, 0x7a5232, 6);
+  }
+
+  private useCan(): void {
+    const t = this.facingTarget();
+    this.toolAnim('can', t.px, t.py);
+    const soil = this.def.farmable ? state.soil[soilKey(t.tx, t.ty)] : undefined;
+    if (!soil || soil.watered) return;
+    if (!this.spend(1)) return;
+    soil.watered = true;
+    this.layer.putTileAt(T.SOIL_WET, t.tx, t.ty);
+    this.burst((t.tx + 0.5) * TILE, (t.ty + 0.5) * TILE, 0x7fb4f2, 8);
+  }
+
+  private plant(slot: number): void {
+    const t = this.facingTarget();
+    const soil = this.def.farmable ? state.soil[soilKey(t.tx, t.ty)] : undefined;
+    if (!soil) { ui.toast('Seeds need tilled soil. Use the Hoe on your farm first.'); return; }
+    if (soil.crop) return;
+    soil.crop = { id: ITEMS[state.inventory[slot]!.id].crop!, days: 0 };
+    removeAt(slot, 1);
+    this.refreshCrop(t.tx, t.ty);
+    this.lockedUntil = this.time.now + 150;
+  }
+
+  private refreshCrop(x: number, y: number): void {
+    const key = soilKey(x, y);
+    const soil = state.soil[key];
+    let spr = this.cropSprites.get(key);
+    if (!soil?.crop) {
+      spr?.destroy();
+      this.cropSprites.delete(key);
+      return;
+    }
+    const frame = `${soil.crop.id}_${cropStage(soil)}`;
+    if (!spr) {
+      spr = this.add.image((x + 0.5) * TILE, (y + 0.5) * TILE - 2, 'crops', frame).setDepth((y + 1) * TILE - 3);
+      this.cropSprites.set(key, spr);
+    } else spr.setFrame(frame);
+  }
+
+  private harvest(x: number, y: number): void {
+    const soil = state.soil[soilKey(x, y)];
+    const produce = CROPS[soil.crop!.id].produce;
+    if (!addItem(produce, 1)) { ui.toast('Your bag is full!'); return; }
+    soil.crop = undefined;
+    this.refreshCrop(x, y);
+    this.popIcon(produce, (x + 0.5) * TILE, (y + 0.5) * TILE);
+    ui.toast(`+1 ${ITEMS[produce].name}`);
+  }
+
+  private offerEat(slot: number): void {
+    const item = ITEMS[state.inventory[slot]!.id];
+    const gains = [item.energy ? `+${item.energy} energy` : '', item.heal ? `+${item.heal} heart` : ''].filter(Boolean).join(', ');
+    ui.dialogue({
+      lines: [`Eat the ${item.name}? (${gains})`],
+      choices: [
+        {
+          label: 'Eat',
+          action: () => {
+            if (state.inventory[slot]?.id !== item.id) return;
+            state.energy = Math.min(state.maxEnergy, state.energy + (item.energy ?? 0));
+            state.hp = Math.min(state.maxHp, state.hp + (item.heal ?? 0));
+            removeAt(slot, 1);
+            ui.toast(`Yum! ${gains}`);
+          },
+        },
+        { label: 'No' },
+      ],
+    });
+  }
+
+  private openMenu(): void {
+    ui.dialogue({
+      speaker: 'Menu',
+      lines: [`Day ${state.day}, ${formatTime(state.minutes)}.  Gold: ${state.gold}g.  Slimes defeated: ${state.slimes}.`],
+      choices: [
+        { label: 'Resume' },
+        { label: 'Controls', action: () => ui.dialogue({ speaker: 'Controls', lines: CONTROLS }) },
+        {
+          label: 'Quit to title (progress since you last slept is lost)',
+          action: () => { this.scene.stop('UI'); this.scene.start('Title'); },
+        },
+      ],
+    });
+  }
+
+  // ------------------------------------------------------------------ combat
+
+  private swingSword(): void {
+    const now = this.time.now;
+    if (now < this.swingReadyAt) return;
+    this.swingReadyAt = now + 380;
+    this.lockedUntil = now + 180;
+    const d = DIR[this.facing];
+    const b = this.pbody();
+    const cx = b.center.x + d.x * 11, cy = b.center.y - 4 + d.y * 11;
+    const slash = this.add.image(cx, cy, 'slash').setAngle(SLASH_ANGLE[this.facing]).setDepth(this.player.depth + 1);
+    this.tweens.add({ targets: slash, alpha: 0, scale: 1.25, duration: 180, onComplete: () => slash.destroy() });
+
+    const hit = new Phaser.Geom.Rectangle(cx - 11, cy - 11, 22, 22);
+    for (const s of [...this.slimes]) {
+      const sb = s.body as Body;
+      if (!Phaser.Geom.Intersects.RectangleToRectangle(hit, new Phaser.Geom.Rectangle(sb.x, sb.y, sb.width, sb.height))) continue;
+      if (s.damage(d.x, d.y, now)) this.killSlime(s);
+    }
+  }
+
+  private killSlime(s: Slime): void {
+    this.slimes.splice(this.slimes.indexOf(s), 1);
+    state.slimes++;
+    this.burst(s.x, s.y + 2, 0x6ad06a, 12);
+    if (Math.random() < 0.8) this.addPickup(s.x, s.y + 2, 'gel');
+    s.destroy();
+    if (state.slimes % 10 === 0) ui.toast(`${state.slimes} slimes defeated! Mayor Orla will be pleased.`);
+  }
+
+  private hurtPlayer(s: Slime): void {
+    const now = this.time.now;
+    if (modal.open || this.transitioning || s.dead || now < this.invulnUntil) return;
+    state.hp--;
+    this.invulnUntil = now + 1000;
+    const dx = this.player.x - s.x, dy = this.player.y - s.y;
+    const len = Math.hypot(dx, dy) || 1;
+    this.pbody().setVelocity((dx / len) * 170, (dy / len) * 170);
+    this.knockUntil = now + 160;
+    s.knock(-dx, -dy, now, 90);
+    this.cameras.main.shake(120, 0.004);
+    this.player.setTintFill(0xff6060);
+    this.time.delayedCall(110, () => this.player.clearTint());
+    if (state.hp <= 0) {
+      state.hp = 0;
+      const lost = Math.floor(state.gold * 0.1);
+      state.gold -= lost;
+      this.endDay(true, `You were knocked out! Someone from town carried you home.${lost ? ` (You dropped ${lost}g.)` : ''}`);
+    }
+  }
+
+  // ------------------------------------------------------------------ pickups & effects
+
+  private checkPickups(): void {
+    const b = this.pbody();
+    for (const p of [...this.pickups]) {
+      if (Phaser.Math.Distance.Between(b.center.x, b.center.y, p.img.x, p.img.y + 2) < 9) this.collect(p);
+    }
+  }
+
+  private collect(p: Pickup): void {
+    if (!addItem(p.id, 1)) { ui.toast('Your bag is full!'); return; }
+    this.pickups.splice(this.pickups.indexOf(p), 1);
+    if (p.forageKey) state.forage[p.forageKey] = true;
+    this.tweens.killTweensOf(p.img);
+    this.popIcon(p.id, p.img.x, p.img.y);
+    p.img.destroy();
+    ui.toast(`+1 ${ITEMS[p.id].name}`);
+  }
+
+  private popIcon(id: ItemId, x: number, y: number): void {
+    const img = this.add.image(x, y, 'items', id).setDepth(10000);
+    this.tweens.add({ targets: img, y: y - 14, alpha: 0, duration: 500, ease: 'Quad.out', onComplete: () => img.destroy() });
+  }
+
+  private toolAnim(id: ItemId, x: number, y: number): void {
+    this.lockedUntil = this.time.now + 230;
+    this.pbody().setVelocity(0, 0);
+    const flip = this.facing === 'left';
+    const icon = this.add.image(x, y - 6, 'items', id).setDepth(this.player.depth + 1).setFlipX(flip);
+    this.tweens.add({
+      targets: icon, angle: { from: flip ? 40 : -40, to: flip ? -30 : 30 }, duration: 150,
+      onComplete: () => this.tweens.add({ targets: icon, alpha: 0, duration: 90, onComplete: () => icon.destroy() }),
+    });
+  }
+
+  private burst(x: number, y: number, color: number, n: number): void {
+    for (let i = 0; i < n; i++) {
+      const p = this.add.image(x, y, 'spark').setTint(color).setDepth(10000);
+      const a = Math.random() * Math.PI * 2, r = 4 + Math.random() * 8;
+      this.tweens.add({
+        targets: p, x: x + Math.cos(a) * r, y: y + Math.sin(a) * r - 4, alpha: 0,
+        duration: 300 + Math.random() * 200, ease: 'Quad.out', onComplete: () => p.destroy(),
+      });
+    }
+  }
+}

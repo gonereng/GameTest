@@ -1,0 +1,60 @@
+# Hollowbrook
+
+A small top-down 2D farming game with light combat, built with **Phaser 3 + TypeScript + Vite**.
+
+You've taken over Thistle Farm in the valley of Hollowbrook. Grow crops, sell them for gold, and
+clear the slimes out of Mossy Woods.
+
+## Run it
+
+```bash
+npm install
+npm run dev        # open the printed URL (usually http://localhost:5173)
+npm run build      # production build in dist/ (static files, works on GitHub Pages)
+```
+
+## Controls
+
+| Key | Action |
+| --- | --- |
+| WASD / Arrows | Move |
+| Space (or J) | Use the selected item. When facing a person, sign or ripe crop, it interacts instead |
+| E (or K) | Talk, read, harvest, open |
+| 1-0, Q, mouse wheel | Pick a hotbar slot |
+| Esc | Menu |
+
+## What's in it
+
+- **Farming:** till grass with the hoe, plant seeds, water daily. Watered crops grow overnight.
+  Carrots (3 days), Turnips (5 days), Moonmelons (8 days).
+- **Day cycle:** 6 AM to 2 AM (about 14 real minutes), with nightfall. Energy is spent by tools.
+  Sleep in your bed to end the day and save. Staying up past 2 AM makes you pass out.
+- **Combat:** slimes roam Mossy Woods. Swing the sword to defeat them and collect Slime Gel.
+  Getting knocked out sends you home and costs 10% of your gold.
+- **Economy:** sell crops, forage and gel in the shipping bin. Buy seeds, bread and Heart Charms
+  (+1 max heart) at Bram's shop in town.
+- **Places:** farm, house, Hollowbrook town (Mayor Orla, Pip), Bram's shop, Mossy Woods.
+- **Saving:** automatic on sleep, stored in the browser's localStorage.
+
+## Code layout
+
+```
+src/
+  main.ts            Phaser game config
+  config.ts          Tile size, zoom, screen size
+  tiles.ts           Tile ids and which ones are solid
+  maps.ts            All maps, built in code (tiles, warps, NPCs, signs, spawns)
+  items.ts           Items and crops
+  state.ts           Game state, inventory, day advance, save/load
+  textures.ts        All pixel art, drawn with canvas at startup
+  slime.ts           Slime enemy
+  bus.ts             Events between the world and the UI
+  scenes/
+    BootScene.ts     Generates textures and animations
+    TitleScene.ts    Title screen (Continue / New Game)
+    WorldScene.ts    Player, farming, combat, NPCs, map transitions, clock
+    UIScene.ts       HUD, hotbar, dialogue boxes, shop
+```
+
+All art is generated in `textures.ts`, so there are no image files. To use real pixel art later,
+load PNG spritesheets in `BootScene` under the same texture keys and frame names.
