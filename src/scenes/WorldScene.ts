@@ -8,6 +8,7 @@ import {
 } from '../state';
 import { modal, ui } from '../bus';
 import { Slime } from '../slime';
+import { mulberry32 } from '../rng';
 import { Boss } from '../boss';
 import { Story, flag, goalText, wearingSuit } from '../quest';
 import { consumeTouch, touch } from '../touch';
@@ -123,6 +124,7 @@ export class WorldScene extends Phaser.Scene {
     this.spawnNpcs();
     this.spawnSlimes(spawn);
     this.spawnForage();
+    this.spawnEggs();
     this.story = new Story(this);
     this.story.create();
 
@@ -237,9 +239,34 @@ export class WorldScene extends Phaser.Scene {
     }
   }
 
-  private addPickup(x: number, y: number, id: ItemId, forageKey?: string): void {
+  /**
+   * Each grown chicken lays an egg most mornings, somewhere in the grass near where it lives.
+   * Picked eggs are remembered until the next day, like forage.
+   */
+  private spawnEggs(): void {
+    const solid = new Set(SOLID);
+    const mapSeed = [...this.def.id].reduce((n, ch) => n * 31 + ch.charCodeAt(0), 7);
+    this.def.critters.forEach((c, i) => {
+      if (c.kind !== 'chicken_red' && c.kind !== 'chicken_blonde') return;
+      const key = `egg:${this.def.id}:${i}`;
+      if (state.forage[key]) return;
+      const rnd = mulberry32(state.day * 7919 + i * 104729 + mapSeed);
+      if (rnd() > 0.85) return; // a day off
+      const golden = rnd() < 0.06;
+      for (let tries = 0; tries < 12; tries++) {
+        const x = c.x + Math.floor(rnd() * 5) - 2, y = c.y + Math.floor(rnd() * 5) - 2;
+        const tile = this.def.tiles[y]?.[x];
+        if (tile === undefined || solid.has(tile) || this.def.farmable && state.soil[soilKey(x, y)]) continue;
+        this.addPickup((x + 0.3 + rnd() * 0.4) * TILE, (y + 0.5) * TILE, golden ? 'golden_egg' : 'egg', key, false);
+        return;
+      }
+    });
+  }
+
+  private addPickup(x: number, y: number, id: ItemId, forageKey?: string, bob = true): void {
     const img = this.add.image(x, y, 'items', id).setDepth(y + 4);
-    this.tweens.add({ targets: img, y: y - 2, yoyo: true, repeat: -1, duration: 700 + Math.random() * 300, ease: 'Sine.inOut' });
+    if (id === 'golden_egg') this.tweens.add({ targets: img, alpha: 0.7, yoyo: true, repeat: -1, duration: 500 });
+    if (bob) this.tweens.add({ targets: img, y: y - 2, yoyo: true, repeat: -1, duration: 700 + Math.random() * 300, ease: 'Sine.inOut' });
     this.pickups.push({ img, id, forageKey });
   }
 

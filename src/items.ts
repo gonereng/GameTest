@@ -3,7 +3,7 @@ export type ItemId =
   | 'hoe' | 'can' | 'sword'
   | 'seed_strawberry' | 'seed_onion' | 'seed_potato' | 'seed_leek' | 'seed_moonmelon'
   | 'strawberry' | 'onion' | 'potato' | 'leek' | 'moonmelon'
-  | 'gel' | 'berry' | 'mushroom' | 'bread' | 'suit';
+  | 'gel' | 'berry' | 'mushroom' | 'bread' | 'suit' | 'egg' | 'golden_egg';
 
 export type ItemKind = 'tool' | 'seed' | 'produce' | 'material' | 'forage' | 'food';
 
@@ -35,6 +35,8 @@ export const ITEMS: Record<ItemId, ItemDef> = {
   potato: { id: 'potato', name: 'Potato', kind: 'produce', sell: 70, energy: 18, desc: 'Dependable.' },
   leek: { id: 'leek', name: 'Leek', kind: 'produce', sell: 100, energy: 20, desc: 'Fancy onion.' },
   moonmelon: { id: 'moonmelon', name: 'Moonmelon', kind: 'produce', sell: 220, energy: 40, heal: 1, desc: 'It hums quietly at night.' },
+  egg: { id: 'egg', name: 'Egg', kind: 'produce', sell: 25, energy: 12, desc: 'Fresh from a chicken. Still warm.' },
+  golden_egg: { id: 'golden_egg', name: 'Golden Egg', kind: 'produce', sell: 200, desc: 'Shiny, heavy, and slightly smug. Do not eat.' },
   gel: { id: 'gel', name: 'Slime Gel', kind: 'material', sell: 15, desc: 'Wobbly. Somebody buys this stuff.' },
   berry: { id: 'berry', name: 'Wild Berries', kind: 'forage', sell: 10, energy: 10, desc: 'Found in Mossy Woods.' },
   mushroom: { id: 'mushroom', name: 'Woodcap', kind: 'forage', sell: 25, energy: 15, heal: 1, desc: 'A sturdy forest mushroom.' },

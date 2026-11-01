@@ -6,8 +6,8 @@ type Body = Phaser.Physics.Arcade.Body;
 const SPEED: Record<CritterKind, number> = { chicken_red: 22, chicken_blonde: 22, chick: 16, cow: 10, cow_male: 10 };
 const isCow = (k: CritterKind) => k === 'cow' || k === 'cow_male';
 export const CRITTER_LINES: Record<CritterKind, string[][]> = {
-  chicken_red: [['Bawk.'], ['Bawk bawk.', '(It looks at you like it knows something about the moon.)'], ['(The chicken pecks at absolutely nothing.)']],
-  chicken_blonde: [['Cluck?'], ['Cluck cluck.', '(It seems unimpressed by your farming.)'], ['(It fluffs up its feathers.)']],
+  chicken_red: [['Bawk.'], ['Bawk!', '(It looks proud of itself. Check the grass nearby for eggs.)'], ['Bawk bawk.', '(It looks at you like it knows something about the moon.)'], ['(The chicken pecks at absolutely nothing.)']],
+  chicken_blonde: [['Cluck?'], ['Cluck!', '(Chickens lay eggs in the morning. This one wants you to know that.)'], ['Cluck cluck.', '(It seems unimpressed by your farming.)'], ['(It fluffs up its feathers.)']],
   chick: [['Peep!'], ['Peep peep peep!'], ['(It falls over. It gets back up. Peep.)']],
   cow: [['Moo.'], ['Mooooo.', '(Her name is Clementine. She told you, sort of.)'], ['(She chews thoughtfully.)']],
   cow_male: [['MOO.'], ['(He stares at the horizon like a cow with a past.)'], ['Moo. (It sounds like a warning about slimes.)']],

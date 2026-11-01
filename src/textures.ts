@@ -603,6 +603,24 @@ function seedPacket(c: Ctx, ox: number, color: string) {
   fill(c, ox + 5, 13, 6, 1, '#c8b898');
 }
 
+/** The egg from the Tiny Farm chick sheet (row 2). The golden one is recoloured. */
+function drawEgg(scene: Phaser.Scene, c: Ctx, ox: number, golden: boolean) {
+  const src = scene.textures.get('chick').getSourceImage() as HTMLImageElement;
+  if (!golden) { c.drawImage(src, 0, 2 * S, S, S, ox, 0, S, S); return; }
+  // Recolour on a scratch canvas so the gold doesn't spill onto neighbouring icons.
+  const tmp = document.createElement('canvas');
+  tmp.width = S; tmp.height = S;
+  const t = tmp.getContext('2d')!;
+  t.drawImage(src, 0, 2 * S, S, S, 0, 0, S, S);
+  t.globalCompositeOperation = 'multiply';
+  t.fillStyle = '#ffc830';
+  t.fillRect(0, 0, S, S);
+  t.globalCompositeOperation = 'destination-in';
+  t.drawImage(src, 0, 2 * S, S, S, 0, 0, S, S);
+  c.drawImage(tmp, ox, 0);
+  px(c, ox + 6, 5, '#fffbe0');
+}
+
 // ---------------------------------------------------------------- crops
 
 function drawCrop(c: Ctx, ox: number, id: CropId, stage: number, items: HTMLCanvasElement) {
@@ -695,6 +713,7 @@ export function generateTextures(scene: Phaser.Scene): void {
   ITEM_ORDER.forEach((id, i) => {
     const crop = Object.values(CROPS).find(c => c.sheetRow !== undefined && (c.produce === id || c.seed === id));
     if (crop) fromSheet(ic, i * S, crop.seed === id ? 7 : 8, crop.sheetRow!);
+    else if (id === 'egg' || id === 'golden_egg') drawEgg(scene, ic, i * S, id === 'golden_egg');
     else ITEM_DRAW[id]?.(ic, i * S);
     items.add(id, 0, i * S, 0, S, S);
   });
