@@ -3,6 +3,7 @@ import { GAME_H, GAME_W } from '../config';
 import { BED_SPAWN } from '../maps';
 import { continueGame, loadSave, startNewGame } from '../state';
 import { T } from '../tiles';
+import { isTouchDevice } from '../touch';
 
 export class TitleScene extends Phaser.Scene {
   private options: { label: string; run: () => void }[] = [];
@@ -52,8 +53,9 @@ export class TitleScene extends Phaser.Scene {
       this.texts.push(t);
     });
 
-    this.add.text(GAME_W / 2, GAME_H - 46,
-      'Move: WASD / Arrows   Use item: Space   Talk/Interact: E   Items: 1-0, Q, wheel   Menu: Esc', {
+    this.add.text(GAME_W / 2, GAME_H - 46, isTouchDevice()
+      ? 'Tap to start. Drag on the left to move, USE and TALK on the right, tap the hotbar to pick items.'
+      : 'Move: WASD / Arrows   Use item: Space   Talk/Interact: E   Items: 1-0, Q, wheel   Menu: Esc', {
         fontFamily: 'monospace', fontSize: '15px', color: '#f4e4b0', stroke: '#2a1a0a', strokeThickness: 4,
       }).setOrigin(0.5);
 

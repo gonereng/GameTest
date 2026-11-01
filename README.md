@@ -23,6 +23,10 @@ npm run build      # production build in dist/ (static files, works on GitHub Pa
 | 1-0, Q, mouse wheel | Pick a hotbar slot |
 | Esc | Menu |
 
+**On a phone or tablet** (hold it sideways): drag anywhere on the left half to move, tap **USE** and
+**TALK** on the right, tap a hotbar slot to pick it, and use the two buttons at the top for the menu
+and fullscreen. Tap to advance dialogue. In the shop, tap an item twice to buy it.
+
 ## What's in it
 
 - **Farming:** till grass with the hoe, plant seeds, water daily. Watered crops grow overnight.

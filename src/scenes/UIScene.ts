@@ -3,6 +3,7 @@ import { GAME_H, GAME_W } from '../config';
 import { ITEMS, type ItemId } from '../items';
 import { HOTBAR_SIZE, addItem, formatTime, runtime, state } from '../state';
 import { bus, modal, type DialogueOpts } from '../bus';
+import { TouchControls, isTouchDevice, touch } from '../touch';
 import { buyStoryItem, deadlineText, flag, goalText, moonMissing, storyShopEntries, type StoryShopEntry } from '../quest';
 
 const FONT = 'monospace';
@@ -61,6 +62,9 @@ export class UIScene extends Phaser.Scene {
   private goalText!: Phaser.GameObjects.Text;
   private lastGoal = '';
   private entries: ShopEntry[] = [];
+  private touchUI?: TouchControls;
+  /** On touch screens the first tap on a shop row selects it and the second buys it. */
+  private shopTapped = -1;
 
   private dlg?: {
     opts: DialogueOpts; line: number; choice: number;
@@ -135,6 +139,8 @@ export class UIScene extends Phaser.Scene {
       modal.open = false;
     });
     this.input.keyboard!.on('keydown', (e: KeyboardEvent) => this.onKey(e));
+    if (isTouchDevice()) touch.enabled = true;
+    this.touchUI = new TouchControls(this, { x: this.hotbarX(), y: GAME_H - 74, slot: SLOT, gap: SLOT_GAP });
     this.input.on('pointerdown', () => {
       if (this.dlg && !this.showingChoices() && performance.now() - modal.openedAt > 150) this.advance();
     });
@@ -145,6 +151,7 @@ export class UIScene extends Phaser.Scene {
   }
 
   update(): void {
+    this.touchUI?.update();
     // While the moon is missing, nights are much darker. In the eternal night it's always dark.
     let dark = nightAlpha(state.minutes);
     if (moonMissing()) dark = Math.min(0.78, dark * 1.6);
@@ -260,7 +267,7 @@ export class UIScene extends Phaser.Scene {
     const root = this.add.container(0, 0).setDepth(100);
     const gfx = this.add.graphics();
     const text = this.add.text(64, 0, '', { ...textStyle(22), wordWrap: { width: GAME_W - 140 }, lineSpacing: 6 });
-    const hint = this.add.text(GAME_W - 64, 0, 'Space >', textStyle(16, '#ffe27a')).setOrigin(1, 1);
+    const hint = this.add.text(GAME_W - 64, 0, touch.enabled ? 'Tap >' : 'Space >', textStyle(16, '#ffe27a')).setOrigin(1, 1);
     root.add([gfx, text, hint]);
     let name: Phaser.GameObjects.Text | undefined;
     if (opts.speaker) {
@@ -367,7 +374,16 @@ export class UIScene extends Phaser.Scene {
       for (const o of [t, p]) {
         o.setInteractive({ useHandCursor: true });
         o.on('pointerover', () => { if (this.shop) { this.shop.cursor = i; this.renderShop(); } });
-        o.on('pointerdown', () => this.buy());
+        o.on('pointerdown', (p: Phaser.Input.Pointer) => {
+          if (!this.shop) return;
+          if (p.wasTouch && this.shopTapped !== i) {
+            this.shopTapped = i;
+            this.shop.cursor = i;
+            this.renderShop();
+            return;
+          }
+          this.buy();
+        });
       }
       root.add([icon, t, p]);
       rows.push(t);
@@ -375,8 +391,12 @@ export class UIScene extends Phaser.Scene {
     });
     const desc = this.add.text(x + 30, y + h - 96, '', { ...textStyle(18, '#e8dcc0'), wordWrap: { width: w - 60 } });
     const gold = this.add.text(x + 30, y + h - 40, '', textStyle(20, '#ffe27a'));
-    const hint = this.add.text(x + w - 30, y + h - 40, 'Space: buy   Esc: leave', textStyle(16, '#c8b090')).setOrigin(1, 0);
-    root.add([desc, gold, hint]);
+    const hint = this.add.text(x + w - 30, y + h - 40, touch.enabled ? 'Tap twice to buy' : 'Space: buy   Esc: leave', textStyle(16, '#c8b090')).setOrigin(1, 0);
+    const close = this.add.text(x + w - 22, y + 14, 'X', { ...textStyle(26, '#ffe27a'), backgroundColor: '#5a3a20', padding: { x: 10, y: 2 } })
+      .setOrigin(1, 0).setInteractive({ useHandCursor: true });
+    close.on('pointerup', () => this.closeShop());
+    root.add([desc, gold, hint, close]);
+    this.shopTapped = -1;
     this.shop = { cursor: 0, root, rows, prices, sel, desc, gold };
     modal.open = true;
     modal.openedAt = performance.now();

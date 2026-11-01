@@ -13,6 +13,7 @@ const game = new Phaser.Game({
   backgroundColor: '#1a1410',
   pixelArt: true,
   physics: { default: 'arcade', arcade: { debug: false } },
+  input: { activePointers: 3 },
   scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
   scene: [BootScene, TitleScene, WorldScene, UIScene],
 });

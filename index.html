@@ -2,16 +2,25 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="theme-color" content="#120d09" />
     <title>Hollowbrook</title>
     <style>
-      html, body { margin: 0; height: 100%; background: #120d09; overflow: hidden; }
+      html, body { margin: 0; height: 100%; background: #120d09; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
       #game { width: 100vw; height: 100vh; }
       canvas { image-rendering: pixelated; }
+      #rotate {
+        display: none; position: fixed; inset: 0; z-index: 10; background: #120d09; color: #f4e4b0;
+        font: bold 22px monospace; text-align: center; align-items: center; justify-content: center; padding: 24px;
+      }
+      @media (orientation: portrait) and (pointer: coarse) { #rotate { display: flex; } }
     </style>
   </head>
   <body>
     <div id="game"></div>
+    <div id="rotate">Turn your phone sideways to play Hollowbrook</div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

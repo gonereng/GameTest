@@ -10,6 +10,7 @@ import { modal, ui } from '../bus';
 import { Slime } from '../slime';
 import { Boss } from '../boss';
 import { Story, flag, goalText, wearingSuit } from '../quest';
+import { consumeTouch, touch } from '../touch';
 import { CHARACTERS } from '../textures';
 
 type Body = Phaser.Physics.Arcade.Body;
@@ -251,10 +252,10 @@ export class WorldScene extends Phaser.Scene {
   update(_time: number, delta: number): void {
     const k = this.keys;
     // Always read "just pressed" so presses made while a dialogue is open are discarded.
-    const pressUse = Phaser.Input.Keyboard.JustDown(k.space) || Phaser.Input.Keyboard.JustDown(k.j);
-    const pressTalk = Phaser.Input.Keyboard.JustDown(k.e) || Phaser.Input.Keyboard.JustDown(k.k);
+    const pressUse = Phaser.Input.Keyboard.JustDown(k.space) || Phaser.Input.Keyboard.JustDown(k.j) || consumeTouch('use');
+    const pressTalk = Phaser.Input.Keyboard.JustDown(k.e) || Phaser.Input.Keyboard.JustDown(k.k) || consumeTouch('talk');
     const pressNext = Phaser.Input.Keyboard.JustDown(k.q);
-    const pressMenu = Phaser.Input.Keyboard.JustDown(k.esc);
+    const pressMenu = Phaser.Input.Keyboard.JustDown(k.esc) || consumeTouch('menu');
 
     const body = this.pbody();
     if (this.transitioning) { body.setVelocity(0, 0); return; }
@@ -272,6 +273,13 @@ export class WorldScene extends Phaser.Scene {
       if (k.right.isDown || k.d.isDown) vx += 1;
       if (k.up.isDown || k.w.isDown) vy -= 1;
       if (k.down.isDown || k.s.isDown) vy += 1;
+      // Joystick: snap to 8 directions, which suits a tile-based world.
+      const len = Math.hypot(touch.dx, touch.dy);
+      if (len > 0.3) {
+        const nx = touch.dx / len, ny = touch.dy / len;
+        if (Math.abs(nx) > 0.38) vx += Math.sign(nx);
+        if (Math.abs(ny) > 0.38) vy += Math.sign(ny);
+      }
     }
     if (now >= this.knockUntil) {
       const len = Math.hypot(vx, vy);
