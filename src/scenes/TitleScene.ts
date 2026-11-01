@@ -1,11 +1,23 @@
 import Phaser from 'phaser';
 import { BED_SPAWN } from '../maps';
-import { continueGame, loadSave, startNewGame } from '../state';
+import { fromSaveData, loadSave, startNewGame, useSave, type GameState } from '../state';
 import { askName } from '../namePrompt';
+import { askAccount } from '../accountPrompt';
+import { cloudEnabled, currentUser, downloadSave, refreshSession, signOut, uploadSave } from '../cloud';
 import { T } from '../tiles';
 import { isTouchDevice } from '../touch';
 
+/** The newer of two saves (either may be missing). */
+function newest(a: GameState | null, b: GameState | null): GameState | null {
+  if (!a || !b) return a ?? b;
+  return (b.savedAt ?? 0) > (a.savedAt ?? 0) ? b : a;
+}
+
 export class TitleScene extends Phaser.Scene {
+  /** The signed-in player's cloud save, fetched once per page load (and after signing in). */
+  private static cloudSave: GameState | null = null;
+  private static cloudChecked = false;
+  private static cloudError = false;
   private options: { label: string; run: () => void }[] = [];
   private texts: Phaser.GameObjects.Text[] = [];
   private cursor = 0;
@@ -45,10 +57,30 @@ export class TitleScene extends Phaser.Scene {
     this.tweens.add({ targets: hero, y: 296, yoyo: true, repeat: -1, duration: 600, ease: 'Sine.inOut' });
     this.tweens.add({ targets: slime, x: slime.x + 10, yoyo: true, repeat: -1, duration: 900, ease: 'Sine.inOut' });
 
-    const save = loadSave();
+    const local = loadSave();
+    const save = newest(local, TitleScene.cloudSave);
+    const user = currentUser();
     this.options = [];
-    if (save) this.options.push({ label: `Continue  (${save.playerName}, Day ${save.day}, ${save.gold}g)`, run: () => this.begin(false) });
+    if (save) {
+      const where = user && save === TitleScene.cloudSave ? ', from your account' : '';
+      this.options.push({ label: `Continue  (${save.playerName}, Day ${save.day}${where})`, run: () => this.begin(false) });
+    }
     this.options.push({ label: save ? 'New Game  (replaces save)' : 'New Game', run: () => this.newGame() });
+    if (cloudEnabled) {
+      this.options.push(user
+        ? { label: 'Sign out', run: () => this.signOutAndRefresh() }
+        : { label: 'Sign in / Create account', run: () => this.signInAndSync() });
+      const status = user
+        ? `Cloud saves on: signed in as ${user.email}${TitleScene.cloudError ? ' (cloud unreachable, using this device)' : ''}`
+        : 'Saving on this device only. Sign in to keep your farm in the cloud.';
+      this.add.text(GAME_W / 2, 390 + this.options.length * 46 + 6, status, {
+        fontFamily: 'monospace', fontSize: '15px', color: user ? '#9be37a' : '#f4e4b0', stroke: '#2a1a0a', strokeThickness: 4,
+      }).setOrigin(0.5);
+      if (!TitleScene.cloudChecked) {
+        TitleScene.cloudChecked = true;
+        void this.syncAccount().then(() => this.scene.isActive() && this.scene.restart());
+      }
+    }
 
     this.options.forEach((opt, i) => {
       const t = this.add.text(GAME_W / 2, 390 + i * 46, opt.label, {
@@ -70,7 +102,7 @@ export class TitleScene extends Phaser.Scene {
 
     const kb = this.input.keyboard!;
     kb.on('keydown', (e: KeyboardEvent) => {
-      if (this.naming) return;
+      if (this.busy) return;
       if (['ArrowUp', 'KeyW'].includes(e.code)) this.cursor = (this.cursor + this.options.length - 1) % this.options.length;
       else if (['ArrowDown', 'KeyS'].includes(e.code)) this.cursor = (this.cursor + 1) % this.options.length;
       else if (['Space', 'Enter', 'KeyE', 'KeyJ'].includes(e.code)) { this.options[this.cursor].run(); return; }
@@ -87,19 +119,58 @@ export class TitleScene extends Phaser.Scene {
     });
   }
 
-  private naming = false;
+  /** True while a name or account box is open, so the menu ignores keys. */
+  private busy = false;
 
   /** Asks for the player's name, then starts. Backing out returns to the title menu. */
   private async newGame(): Promise<void> {
-    if (this.naming) return;
-    this.naming = true;
-    const name = await askName(this.input.keyboard);
-    this.naming = false;
+    if (this.busy) return;
+    this.busy = true;
+    const name = await askName(this.input.keyboard, currentUser()?.name ?? '');
+    this.busy = false;
     if (name) this.begin(true, name);
   }
 
+  /** Restores the session and fetches the cloud save. */
+  private async syncAccount(): Promise<void> {
+    TitleScene.cloudError = false;
+    const user = await refreshSession();
+    if (!user) { TitleScene.cloudSave = null; return; }
+    const data = await downloadSave();
+    if (data === undefined) TitleScene.cloudError = true;
+    TitleScene.cloudSave = data ? fromSaveData(data) : null;
+  }
+
+  private async signInAndSync(): Promise<void> {
+    if (this.busy) return;
+    this.busy = true;
+    const ok = await askAccount(this.input.keyboard);
+    if (ok) {
+      await this.syncAccount();
+      // Bring an existing farm on this device into the account, unless the account has a newer one.
+      const local = loadSave();
+      if (local && !TitleScene.cloudError && newest(local, TitleScene.cloudSave) === local && await uploadSave(local)) {
+        TitleScene.cloudSave = local;
+      }
+    }
+    this.busy = false;
+    this.scene.restart();
+  }
+
+  private async signOutAndRefresh(): Promise<void> {
+    if (this.busy) return;
+    this.busy = true;
+    await signOut();
+    TitleScene.cloudSave = null;
+    TitleScene.cloudError = false;
+    this.busy = false;
+    this.scene.restart();
+  }
+
   private begin(fresh: boolean, name = 'Farmer'): void {
-    if (fresh || !continueGame()) startNewGame(name);
+    const save = newest(loadSave(), TitleScene.cloudSave);
+    if (fresh || !save) startNewGame(name);
+    else useSave(save);
     this.scene.launch('UI');
     this.scene.start('World', { map: 'house', spawn: BED_SPAWN, facing: 'down', intro: fresh, newDay: !fresh });
   }

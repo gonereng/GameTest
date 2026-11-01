@@ -52,6 +52,39 @@ design, including every scene and both endings, is in [docs/STORY.md](docs/STORY
 
 Spoiler-free tips: talk to everyone, keep some Slime Gel, and water the soil right next to Gerald.
 
+## Accounts and cloud saves (Neon)
+
+Players can create an account and keep their farm in the cloud, so they can continue on any device.
+The browser never talks to the database directly:
+
+```
+Game (GitHub Pages) --sign in--> Neon Auth (managed accounts)
+        |                          | short-lived login token (JWT)
+        +--Bearer token--> "saves" Neon Function --pg--> Postgres table `saves` (one row per player)
+```
+
+- `neon.ts`: declares Neon Auth (`auth: true`) and the `saves` Function.
+- `functions/saves/`: the Function (Hono + `pg` + `jose`). It checks the token against Neon Auth's keys and
+  only ever reads or writes the row for that token's user. `saves.test.mts` covers it end to end.
+- `migrations/` + `npm run db:migrate`: the database schema, applied once each.
+- `src/cloud.ts`, `src/accountPrompt.ts`: sign-in, sign-up and save upload/download in the game.
+- Without `VITE_NEON_AUTH_URL` and `VITE_SAVES_URL` at build time, accounts are hidden and the game
+  saves on the device only. Saves always go to the device first, so a failed upload loses nothing.
+
+Deploying it (needs a Neon login or `NEON_API_KEY`):
+
+```bash
+neon deploy                 # creates Auth + the saves Function, writes .env.local
+npm run db:migrate          # creates the saves table
+neon functions get saves    # -> invocation_url
+neon neon-auth domain add https://gonereng.github.io
+```
+
+Then put the two public URLs in `.env.production` (`VITE_NEON_AUTH_URL`, `VITE_SAVES_URL`) and push.
+
+Testing locally without Neon: `tests/fake-neon-auth.mts` stands in for Neon Auth and
+`tests/serve-function.mts` serves the real Function against a local Postgres.
+
 ## Code layout
 
 ```

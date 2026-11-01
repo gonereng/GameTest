@@ -5,6 +5,8 @@ import { TitleScene } from './scenes/TitleScene';
 import { WorldScene } from './scenes/WorldScene';
 import { UIScene } from './scenes/UIScene';
 import { fullscreenOnFirstInput } from './fullscreen';
+import { currentUser, uploadSave } from './cloud';
+import { ui } from './bus';
 
 /**
  * The game's size in pixels, chosen to match the window's shape so it fills the screen with no bars.
@@ -31,6 +33,13 @@ const game = new Phaser.Game({
 });
 
 fullscreenOnFirstInput();
+
+// Every save (sleeping) also goes to the player's account when signed in. The copy on this device is
+// always written first, so nothing is lost if the upload fails.
+Save.onSave(s => {
+  if (!currentUser()) return;
+  void uploadSave(s).then(ok => ui.toast(ok ? 'Saved to your account.' : "Couldn't reach the cloud. Saved on this device."));
+});
 
 // Keep the game's shape matched to the window (rotating, resizing, entering fullscreen).
 let resizeTimer = 0;

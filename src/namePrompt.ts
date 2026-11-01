@@ -32,7 +32,7 @@ export function askName(keyboard: { enabled: boolean } | null, suggestion = ''):
     const form = overlay.querySelector('form')!;
     const input = overlay.querySelector('input')!;
     const ok = overlay.querySelector<HTMLButtonElement>('.name-ok')!;
-    input.value = suggestion;
+    input.value = cleanName(suggestion);
     const sync = () => { ok.disabled = !cleanName(input.value); };
     sync();
     input.addEventListener('input', sync);

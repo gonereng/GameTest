@@ -1,8 +1,16 @@
 import { defineConfig } from "@neon/config/v1";
 
 export default defineConfig({
-  // Declare your Neon services here
-  auth: false,
+  // Neon Auth (Managed Better Auth): player accounts for cloud saves.
+  auth: true,
+  functions: {
+    // The cloud-save API the game calls with the player's login token.
+    // Slug is permanent: lowercase letters/digits only.
+    saves: {
+      name: "hollowbrook cloud saves",
+      source: "functions/saves/index.ts",
+    },
+  },
   // Branch policy: per-branch tuning
   branch: (branch) => {
     if (branch.isDefault) {

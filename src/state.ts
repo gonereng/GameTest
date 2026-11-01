@@ -29,6 +29,8 @@ export interface GameState {
   slimes: number;
   /** What the townspeople call you. */
   playerName: string;
+  /** When this was last saved (ms since 1970), to pick the newer of the cloud and local saves. */
+  savedAt: number;
   /** Story progress: see quest.ts for the steps and flags. */
   quest: { step: number; flags: Record<string, boolean>; crashDay: number };
   met: string[];
@@ -63,6 +65,7 @@ export function newGame(): GameState {
     forage: {},
     slimes: 0,
     playerName: 'Farmer',
+    savedAt: 0,
     quest: { step: 0, flags: {}, crashDay: 0 },
     met: [],
     shipped: 0,
@@ -80,11 +83,35 @@ export function startNewGame(playerName = 'Farmer'): void {
   state.playerName = playerName;
 }
 
+/** Called after every save, e.g. to upload it to the cloud. */
+let afterSave: ((s: GameState) => void) | null = null;
+export function onSave(fn: (s: GameState) => void): void {
+  afterSave = fn;
+}
+
 export function save(): void {
+  state.savedAt = Date.now();
   try {
     localStorage.setItem(SAVE_KEY, JSON.stringify(state));
   } catch {
     /* storage may be unavailable (private mode); the game still runs */
+  }
+  afterSave?.(state);
+}
+
+/** Turns a save from anywhere (this device or the cloud) into a full, current game state. */
+export function fromSaveData(data: Partial<GameState>): GameState | null {
+  if (!data || data.version !== 1) return null;
+  return migrate({ ...newGame(), ...data });
+}
+
+/** Makes a save the live game, and keeps a copy on this device. */
+export function useSave(s: GameState): void {
+  state = s;
+  try {
+    localStorage.setItem(SAVE_KEY, JSON.stringify(state));
+  } catch {
+    /* ignore */
   }
 }
 
@@ -131,12 +158,6 @@ function migrate(s: GameState): GameState {
   return s;
 }
 
-export function continueGame(): boolean {
-  const s = loadSave();
-  if (!s) return false;
-  state = s;
-  return true;
-}
 
 export const soilKey = (x: number, y: number) => `${x},${y}`;
 
