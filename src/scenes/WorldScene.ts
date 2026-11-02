@@ -24,12 +24,15 @@ import { Boss } from '../boss';
 import { Story, flag, goalText, wearingSuit } from '../quest';
 import { consumeTouch, touch } from '../touch';
 import { Critter, CRITTER_LINES } from '../critters';
+import { Cat } from '../cat';
 import { CHARACTERS } from '../textures';
 
 type Body = Phaser.Physics.Arcade.Body;
 
 /** How often to check whether your farm changed (and send it for visitors), and how often a visit refreshes. */
 const FARM_PUSH_MS = 4000;
+/** Where the cat sits on the farm, by the house. */
+const CAT_SPOT = { x: 10, y: 8 };
 const VISIT_REFRESH_MS = 10000;
 /** The farm view last sent, so unchanged farms aren't sent again. Kept across scene restarts. */
 let lastPushed = '';
@@ -107,6 +110,8 @@ export class WorldScene extends Phaser.Scene {
   private pickups: Pickup[] = [];
   private cropSprites = new Map<string, Phaser.GameObjects.Image>();
   private treeImages: Phaser.GameObjects.Image[] = [];
+  /** The farm cat (pet it ten times). */
+  private cat?: Cat;
   private sprinklerSprites = new Map<string, Phaser.GameObjects.Image>();
   private invulnUntil = 0;
   /** The tile the player stands on, or is walking away from. */
@@ -134,6 +139,7 @@ export class WorldScene extends Phaser.Scene {
     this.cropSprites = new Map();
     this.sprinklerSprites = new Map();
     this.treeImages = [];
+    this.cat = undefined;
     this.visitStamp = '';
     this.lockedUntil = 0;
     this.invulnUntil = 0;
@@ -173,6 +179,7 @@ export class WorldScene extends Phaser.Scene {
     this.setIdleFrame();
 
     this.placeScenery();
+    if (def.id === 'farm') this.cat = new Cat(this, CAT_SPOT.x, CAT_SPOT.y, TILE, (x, y, c, n) => this.burst(x, y, c, n));
     if (def.farmable) this.buildFarm();
     this.spawnNpcs();
     this.spawnSlimes(spawn);
@@ -364,6 +371,7 @@ export class WorldScene extends Phaser.Scene {
         const x = c.x + Math.floor(rnd() * 5) - 2, y = c.y + Math.floor(rnd() * 5) - 2;
         const tile = this.def.tiles[y]?.[x];
         if (tile === undefined || solid.has(tile) || this.def.farmable && (state.soil[soilKey(x, y)] || this.hasSprinkler(x, y))) continue;
+        if (this.def.id === 'farm' && x === CAT_SPOT.x && y === CAT_SPOT.y) continue;
         this.addPickup((x + 0.3 + rnd() * 0.4) * TILE, (y + 0.5) * TILE, golden ? 'golden_egg' : 'egg', key, false);
         return;
       }
@@ -473,6 +481,7 @@ export class WorldScene extends Phaser.Scene {
     const tile = this.layer.getTileAt(x, y);
     if (!tile || tile.collides) return false;
     if (this.hasSprinkler(x, y)) return false;
+    if (this.cat && x === this.cat.tx && y === this.cat.ty) return false;
     return !this.npcs.some(n => Math.floor(n.sprite.x / TILE) === x && Math.floor((n.sprite.y + 4) / TILE) === y);
   }
 
@@ -711,6 +720,7 @@ export class WorldScene extends Phaser.Scene {
         return true;
       }
     }
+    if (this.petCat()) return true;
     const critter = this.critters.find(c => Phaser.Math.Distance.Between(t.px, t.py, c.x, (c.body as Body).center.y) < 14);
     if (critter) {
       if (this.milk(critter)) return true;
@@ -907,8 +917,19 @@ export class WorldScene extends Phaser.Scene {
     ui.sell();
   }
 
+  /** Pets the cat if the player is facing it. Every 10th pet, it dances. */
+  private petCat(): boolean {
+    const t = this.facingTarget();
+    if (!this.cat || t.tx !== this.cat.tx || t.ty !== this.cat.ty) return false;
+    const line = this.cat.pet();
+    if (line) ui.toast(line);
+    else if (this.cat.dancing) ui.toast('OIIA OIIA!');
+    return true;
+  }
+
   /** On someone else's farm you can chat with the animals and read signs, but not touch anything. */
   private visitorInteract(): boolean {
+    if (this.petCat()) return true;
     const t = this.facingTarget();
     const critter = this.critters.find(c => Phaser.Math.Distance.Between(t.px, t.py, c.x, (c.body as Body).center.y) < 14);
     if (critter) {

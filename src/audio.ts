@@ -183,3 +183,62 @@ function scheduleMusic(): void {
     step++;
   }
 }
+
+// ---------------------------------------------------------------- the cat's song
+
+/** Vowel formants (two resonances each) that make a buzzy tone sound like "oo", "ee" or "ah". */
+const VOWELS = { oo: [320, 800], ee: [280, 2300], ah: [760, 1150] } as const;
+/** One "oo-ee-ee-ah": vowel, length in seconds, pitch. */
+const OIIA: [keyof typeof VOWELS, number, number][] = [['oo', 0.16, 560], ['ee', 0.11, 700], ['ee', 0.11, 700], ['ah', 0.22, 620]];
+
+/**
+ * The spinning cat's song: "oo-ee-ee-ah", over and over, sung by a synthesized voice over a little beat.
+ * Lasts about `seconds`. Does nothing if sound is off or not started yet.
+ */
+export function oiia(seconds = 4): void {
+  if (!ctx || ctx.state !== 'running' || muted) return;
+  const ac = ctx;
+  const start = ac.currentTime + 0.02;
+  // Quieter music while the cat sings, then back again.
+  musicBus.gain.setTargetAtTime(MUSIC_VOLUME * 0.2, start, 0.05);
+  musicBus.gain.setTargetAtTime(MUSIC_VOLUME, start + seconds, 0.3);
+
+  const voice = ac.createOscillator();
+  voice.type = 'sawtooth';
+  const vibrato = ac.createOscillator();
+  const vibratoDepth = ac.createGain();
+  vibrato.frequency.value = 7;
+  vibratoDepth.gain.value = 12;
+  vibrato.connect(vibratoDepth).connect(voice.frequency);
+  const f1 = ac.createBiquadFilter(), f2 = ac.createBiquadFilter();
+  for (const f of [f1, f2]) { f.type = 'bandpass'; f.Q.value = 9; }
+  const out = ac.createGain();
+  out.gain.value = 0.0001;
+  voice.connect(f1).connect(out);
+  voice.connect(f2).connect(out);
+  out.connect(sfxBus);
+
+  let t = start;
+  const phrase = OIIA.reduce((n, [, d]) => n + d, 0) + 0.06;
+  for (let rep = 0; t < start + seconds - phrase + 0.01; rep++) {
+    for (const [vowel, dur, pitch] of OIIA) {
+      const [a, b] = VOWELS[vowel];
+      voice.frequency.setTargetAtTime(pitch + (rep % 2 ? 40 : 0), t, 0.015);
+      f1.frequency.setTargetAtTime(a, t, 0.02);
+      f2.frequency.setTargetAtTime(b, t, 0.02);
+      out.gain.setTargetAtTime(1.4, t, 0.01);
+      out.gain.setTargetAtTime(0.0001, t + dur - 0.03, 0.015);
+      t += dur;
+    }
+    t += 0.06; // a breath between phrases
+  }
+  voice.start(start);
+  vibrato.start(start);
+  voice.stop(t + 0.1);
+  vibrato.stop(t + 0.1);
+  // The beat: kick on every phrase, hi-hats in between.
+  for (let b = start; b < t; b += phrase / 2) {
+    tone(120, 0.12, { type: 'sine', vol: 0.5, to: 45, at: b - ac.currentTime });
+    noise(0.04, { filter: 'highpass', freq: 6000, vol: 0.15, at: b + phrase / 4 - ac.currentTime });
+  }
+}
