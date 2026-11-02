@@ -4,7 +4,7 @@ import { state } from './state';
 
 const flag = (f: string) => !!state.quest.flags[f];
 
-export type MapId = 'farm' | 'house' | 'town' | 'shop' | 'forest' | 'burrow';
+export type MapId = 'farm' | 'house' | 'town' | 'shop' | 'forest' | 'burrow' | 'deep';
 export type Facing = 'down' | 'up' | 'left' | 'right';
 
 export interface Point { x: number; y: number }
@@ -46,7 +46,7 @@ export interface Prop {
 export type CritterKind = 'chicken_red' | 'chicken_blonde' | 'chick' | 'cow' | 'cow_male';
 export interface Critter { kind: CritterKind; x: number; y: number }
 
-export type InteractKind = 'bed' | 'bin' | 'shop' | 'sign' | 'locked';
+export type InteractKind = 'bed' | 'bin' | 'shop' | 'sign' | 'locked' | 'stove';
 
 export interface Interactable extends Point {
   kind: InteractKind;
@@ -67,6 +67,8 @@ export interface MapDef {
   interact: Interactable[];
   slimes: number;
   forage: Point[];
+  /** Deep Woods slimes: tougher, and they drop Slime Cores. */
+  tough?: boolean;
   /** Walkable tiles reachable from the spawn point. */
   open: Point[];
   props: Prop[];
@@ -230,7 +232,7 @@ function buildHouse(): MapDef {
     spawn: { x: 9, y: 9 },
     warps: [{ x: 9, y: 10, w: 1, h: 1, to: 'farm', tx: 6, ty: 6, facing: 'down' }],
     npcs: [],
-    interact: [{ x: 12, y: 4, kind: 'bed' }, { x: 12, y: 5, kind: 'bed' }],
+    interact: [{ x: 12, y: 4, kind: 'bed' }, { x: 12, y: 5, kind: 'bed' }, { x: 7, y: 4, kind: 'stove' }, { x: 8, y: 4, kind: 'stove' }],
     slimes: 0,
     forage: [],
   });
@@ -360,6 +362,10 @@ function buildForest(): MapDef {
   b.scatter(T.BUSH, 25, rnd, free);
   b.scatter(T.ROCK, 8, rnd, free);
   b.set(22, 3, T.SIGN);
+  // The overgrown path west to the Deep Woods. WorldScene clears it once it's open (DEEP_PATH).
+  b.rect(0, 14, 2, 2, T.BUSH);
+  b.rect(2, 13, 3, 4, T.DARK_GRASS);
+  b.set(3, 12, T.SIGN);
   // A suspicious circle of bushes past the bridge. The centre becomes a hole later.
   b.rect(30, 16, 7, 9, T.DARK_GRASS);
   for (let y = 19; y <= 21; y++) for (let x = 32; x <= 34; x++) b.set(x, y, T.BUSH);
@@ -379,10 +385,54 @@ function buildForest(): MapDef {
     warps: [
       { x: 19, y: 0, w: 2, h: 1, to: 'farm', tx: 19, ty: 27, facing: 'up' },
       { x: 33, y: 20, w: 1, h: 1, to: 'burrow', tx: 9, ty: 11, facing: 'up', requires: 'bush' },
+      { x: 0, y: 14, w: 1, h: 2, to: 'deep', tx: 37, ty: 14, facing: 'left', requires: 'deepOpen' },
     ],
     npcs: [],
-    interact: [{ x: 22, y: 3, kind: 'sign', lines: ['Mossy Woods.', 'Berries and mushrooms grow back every morning. So do the slimes.'] }],
+    interact: [
+      { x: 22, y: 3, kind: 'sign', lines: ['Mossy Woods.', 'Berries and mushrooms grow back every morning. So do the slimes.'] },
+      {
+        x: 3, y: 12, kind: 'sign',
+        lines: ['West: The Deep Woods.', 'Path overgrown. It will be cleared once 15 slimes have been dealt with. - Mayor Orla'],
+      },
+    ],
     slimes: 7,
+    forage,
+  });
+}
+
+/** The overgrown tiles in Mossy Woods that open the way to the Deep Woods. */
+export const DEEP_PATH: Point[] = [{ x: 0, y: 14 }, { x: 1, y: 14 }, { x: 0, y: 15 }, { x: 1, y: 15 }];
+export const DEEP_UNLOCK_SLIMES = 15;
+
+function buildDeep(): MapDef {
+  const rnd = mulberry32(83);
+  const b = new Builder(40, 30, T.DARK_GRASS);
+  b.border(T.TREE, 2);
+  b.rect(38, 14, 2, 2, T.DARK_GRASS); // the way back east
+  b.rect(6, 5, 6, 4, T.WATER);
+  b.rect(24, 21, 7, 4, T.WATER);
+  b.rect(14, 12, 3, 1, T.WATER);
+  const corridor = (x: number, y: number) => y >= 13 && y <= 16 && x >= 30;
+  const free = (x: number, y: number) => b.get(x, y) === T.DARK_GRASS && !corridor(x, y);
+  b.scatter(T.TREE, 110, rnd, free);
+  b.scatter(T.BUSH, 30, rnd, free);
+  b.scatter(T.ROCK, 18, rnd, free);
+  b.set(36, 12, T.SIGN);
+  const spawn = { x: 37, y: 14 };
+  const open = b.reachable(spawn);
+  const forage: Point[] = [];
+  const spots = open.filter(p => !corridor(p.x, p.y) && b.near(p.x, p.y, 1, [T.TREE, T.BUSH, T.ROCK]));
+  for (let i = 0; i < 12 && spots.length; i++) forage.push(spots.splice(Math.floor(rnd() * spots.length), 1)[0]);
+  const dark: Record<number, number> = { [T.TREE]: T.DARK_TREE, [T.BUSH]: T.DARK_BUSH, [T.ROCK]: T.DARK_ROCK };
+  b.t = b.t.map(row => row.map(t => dark[t] ?? t));
+  return finish(b, {
+    id: 'deep', name: 'The Deep Woods', indoor: false, farmable: false,
+    spawn,
+    warps: [{ x: 39, y: 14, w: 1, h: 2, to: 'forest', tx: 2, ty: 14, facing: 'right' }],
+    npcs: [],
+    interact: [{ x: 36, y: 12, kind: 'sign', lines: ['The Deep Woods.', 'Blue slimes are tough. Red ones hit twice as hard. Their Slime Cores are worth it.'] }],
+    slimes: 10,
+    tough: true,
     forage,
   });
 }
@@ -426,7 +476,7 @@ function buildBurrow(): MapDef {
 }
 
 const builders: Record<MapId, () => MapDef> = {
-  farm: buildFarm, house: buildHouse, town: buildTown, shop: buildShop, forest: buildForest, burrow: buildBurrow,
+  farm: buildFarm, house: buildHouse, town: buildTown, shop: buildShop, forest: buildForest, burrow: buildBurrow, deep: buildDeep,
 };
 const cache = new Map<MapId, MapDef>();
 

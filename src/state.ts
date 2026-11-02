@@ -1,4 +1,7 @@
-import { CROPS, ITEMS, RENAMED_ITEMS, type CropId, type ItemId } from './items';
+import {
+  CROPS, DAYS_PER_SEASON, ITEMS, RENAMED_ITEMS, SEASON_NAMES, STARTING_RECIPES,
+  type Buff, type CropId, type DishId, type ItemId, type Season,
+} from './items';
 import { mulberry32 } from './rng';
 
 export interface Stack {
@@ -12,6 +15,18 @@ export interface Soil {
 }
 
 export type Weather = 'sun' | 'rain';
+export type ToolId = 'hoe' | 'can' | 'sword';
+
+export interface Friendship {
+  /** 50 points per heart, up to 5 hearts. */
+  points: number;
+  /** Day you last talked to them (the first chat each day counts). */
+  talked: number;
+  /** Day you last gave them a gift (one a day). */
+  gifted: number;
+  /** Heart rewards already given (2 and 4). */
+  rewards: number[];
+}
 
 export interface GameState {
   version: number;
@@ -42,6 +57,14 @@ export interface GameState {
   weather: Weather;
   /** Sprinklers placed on the farm, keyed by "x,y". */
   sprinklers: string[];
+  /** Friendship with the townspeople, keyed by NPC id. */
+  friends: Record<string, Friendship>;
+  /** Dishes you know how to cook. */
+  recipes: DishId[];
+  /** Buffs from food, until bedtime. */
+  buffs: Partial<Record<Buff, boolean>>;
+  /** Tool levels: 0 = starting tool, 1 = upgraded at Bram's. */
+  upgrades: Record<ToolId, number>;
 }
 
 export const HOTBAR_SIZE = 10;
@@ -80,14 +103,18 @@ export function newGame(): GameState {
     shipped: 0,
     weather: 'sun',
     sprinklers: [],
+    friends: {},
+    recipes: [...STARTING_RECIPES],
+    buffs: {},
+    upgrades: { hoe: 0, can: 0, sword: 0 },
   };
 }
 
 /** The live game state. Other modules read it through this binding. */
 export let state: GameState = newGame();
 
-/** Facts about the current map that the UI needs. */
-export const runtime = { map: 'house', indoor: true };
+/** Facts about the current map that the UI needs, and what happened overnight. */
+export const runtime = { map: 'house', indoor: true, withered: 0 };
 
 export function startNewGame(playerName = 'Farmer'): void {
   state = newGame();
@@ -158,6 +185,7 @@ export function loadSave(key = SAVE_KEY): GameState | null {
 /** Updates saves from older versions of the game. */
 function migrate(s: GameState): GameState {
   const rename = (id: string) => (RENAMED_ITEMS[id] ?? id) as ItemId;
+  s.upgrades = { ...{ hoe: 0, can: 0, sword: 0 }, ...(s.upgrades as Partial<GameState['upgrades']>) };
   if (s.inventory.length < HOTBAR_SIZE) s.inventory = [...s.inventory, ...Array(HOTBAR_SIZE - s.inventory.length).fill(null)];
   s.inventory = s.inventory.map(st => (st && ITEMS[rename(st.id)] ? { ...st, id: rename(st.id) } : null));
   for (const soil of Object.values(s.soil)) {
@@ -240,6 +268,31 @@ export function cropFrame(soil: Soil): number {
   return Math.min(def.frames - 2, Math.floor((soil.crop.days / def.days) * (def.frames - 1)));
 }
 
+export function seasonOf(day: number): Season {
+  return (Math.floor((day - 1) / DAYS_PER_SEASON) % 4) as Season;
+}
+
+/** "Spring 5": the season and the day within it. */
+export function dateLabel(day: number): string {
+  return `${SEASON_NAMES[seasonOf(day)]} ${((day - 1) % DAYS_PER_SEASON) + 1}`;
+}
+
+export function yearOf(day: number): number {
+  return Math.floor((day - 1) / (DAYS_PER_SEASON * 4)) + 1;
+}
+
+export function inSeason(crop: CropId, day = state.day): boolean {
+  return CROPS[crop].seasons.includes(seasonOf(day));
+}
+
+/** "Copper Hoe" once the hoe is upgraded, and so on. */
+export function itemName(id: ItemId): string {
+  if (id === 'hoe' && state.upgrades.hoe) return 'Copper Hoe';
+  if (id === 'can' && state.upgrades.can) return 'Copper Watering Can';
+  if (id === 'sword' && state.upgrades.sword) return 'Steel Sword';
+  return ITEMS[id].name;
+}
+
 /** The 8 tiles around a sprinkler, as soil keys. */
 export function sprinklerReach(key: string): string[] {
   const [x, y] = key.split(',').map(Number);
@@ -264,6 +317,14 @@ export function advanceDay(passedOut: boolean): void {
     soil.watered = false;
   }
   state.day++;
+  state.buffs = {};
+  // A new season: crops that don't grow in it wither (the soil stays tilled).
+  runtime.withered = 0;
+  if ((state.day - 1) % DAYS_PER_SEASON === 0) {
+    for (const soil of Object.values(state.soil)) {
+      if (soil.crop && !inSeason(soil.crop.id)) { delete soil.crop; runtime.withered++; }
+    }
+  }
   state.weather = rollWeather(state.day);
   if (state.weather === 'rain') for (const soil of Object.values(state.soil)) soil.watered = true;
   for (const key of state.sprinklers) for (const k of sprinklerReach(key)) if (state.soil[k]) state.soil[k].watered = true;

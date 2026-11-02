@@ -1,6 +1,9 @@
 import Phaser from 'phaser';
-import { ITEMS, type ItemId } from '../items';
-import { BACKPACK_SIZE, addItem, countItem, formatTime, removeItem, runtime, state } from '../state';
+import { CROPS, ITEMS, type ItemId } from '../items';
+import {
+  BACKPACK_SIZE, addItem, countItem, dateLabel, formatTime, inSeason, itemName, removeItem, runtime, seasonOf, state, type ToolId,
+} from '../state';
+import { shopDiscount } from '../friends';
 import { sfx } from '../audio';
 import { bus, modal, type DialogueOpts } from '../bus';
 import { TouchControls, isTouchDevice, touch } from '../touch';
@@ -15,15 +18,35 @@ const MAX_HEARTS = 10;
 /** Row height in the shop list. */
 const ROW = 44;
 
-interface ShopEntry { id?: ItemId; special?: 'heart' | 'backpack'; story?: StoryShopEntry; name: string; price: number; gel?: number; desc: string }
+interface ShopEntry {
+  id?: ItemId; special?: 'heart' | 'backpack' | 'upgrade'; tool?: ToolId; story?: StoryShopEntry;
+  name: string; price: number; desc: string;
+  /** Other things Bram wants for it, such as Slime Gel and Slime Cores. */
+  needs?: [ItemId, number][];
+}
 
-const BASE_SHOP: ShopEntry[] = [
-  ...(['seed_strawberry', 'seed_onion', 'seed_potato', 'seed_leek', 'seed_moonmelon', 'bread', 'sprinkler'] as ItemId[]).map(id => ({
-    id, name: ITEMS[id].name, price: ITEMS[id].price!, gel: ITEMS[id].gel, desc: ITEMS[id].desc,
-  })),
-  { special: 'heart', name: 'Heart Charm', price: 300, desc: 'Permanently adds one heart. Handy in the woods.' },
-  { special: 'backpack', name: 'Backpack', price: 600, desc: 'Two more hotbar slots (keys - and =). One per farmer.' },
+const UPGRADES: ShopEntry[] = [
+  { special: 'upgrade', tool: 'hoe', name: 'Copper Hoe', price: 500, needs: [['gel', 5], ['core', 2]], desc: 'Upgrades your hoe: tills a row of 3 tiles at once.' },
+  { special: 'upgrade', tool: 'can', name: 'Copper Can', price: 500, needs: [['gel', 5], ['core', 2]], desc: 'Upgrades your can: waters a row of 3 tiles at once.' },
+  { special: 'upgrade', tool: 'sword', name: 'Steel Sword', price: 800, needs: [['gel', 8], ['core', 4]], desc: 'Upgrades your sword: hits twice as hard.' },
 ];
+
+/** What Bram has today: in-season seeds, supplies, and upgrades you don't have yet. */
+function baseShop(): ShopEntry[] {
+  const seeds = (Object.values(CROPS).filter(c => inSeason(c.id)).map(c => c.seed));
+  return [
+    ...([...seeds, 'bread', 'sprinkler'] as ItemId[]).map(id => ({
+      id, name: ITEMS[id].name, price: ITEMS[id].price!, desc: ITEMS[id].desc,
+      needs: ITEMS[id].gel ? [['gel', ITEMS[id].gel!] as [ItemId, number]] : undefined,
+    })),
+    ...(state.maxHp < MAX_HEARTS ? [{ special: 'heart' as const, name: 'Heart Charm', price: 300, desc: 'Permanently adds one heart. Handy in the woods.' }] : []),
+    ...(state.inventory.length < BACKPACK_SIZE ? [{ special: 'backpack' as const, name: 'Backpack', price: 600, desc: 'Two more hotbar slots (keys - and =). One per farmer.' }] : []),
+    ...UPGRADES.filter(u => !state.upgrades[u.tool!]),
+  ];
+}
+
+const NEED_NAME: Partial<Record<ItemId, string>> = { gel: 'gel', core: 'cores' };
+const needsText = (needs?: [ItemId, number][]) => (needs ?? []).map(([id, n]) => ` +${n} ${NEED_NAME[id] ?? ITEMS[id].name}`).join('');
 
 const textStyle = (size: number, color = '#ffffff'): Phaser.Types.GameObjects.Text.TextStyle => ({
   fontFamily: FONT, fontSize: `${size}px`, color, stroke: '#1a0f08', strokeThickness: Math.max(3, size / 5),
@@ -50,7 +73,13 @@ function nightAlpha(min: number): number {
 
 export class UIScene extends Phaser.Scene {
   private night!: Phaser.GameObjects.Rectangle;
+  private buffText!: Phaser.GameObjects.Text;
+  /** Shop row height: smaller when the list is long, so it always fits on screen. */
+  private shopRow = ROW;
   private rain!: Phaser.GameObjects.TileSprite;
+  private snow!: Phaser.GameObjects.TileSprite;
+  /** A pale wash over the outdoors in winter. */
+  private frost!: Phaser.GameObjects.Rectangle;
   private slotCount = -1;
   private hearts: Phaser.GameObjects.Image[] = [];
   private heartCount = -1;
@@ -111,7 +140,9 @@ export class UIScene extends Phaser.Scene {
     this.slotNums = [];
     this.slotCount = -1;
     this.night = this.add.rectangle(0, 0, 10, 10, 0x0a1030, 1).setOrigin(0).setAlpha(0);
+    this.frost = this.add.rectangle(0, 0, 10, 10, 0xf0f6ff, 1).setOrigin(0).setAlpha(0);
     this.rain = this.add.tileSprite(0, 0, 10, 10, 'rain').setOrigin(0).setTileScale(3).setVisible(false);
+    this.snow = this.add.tileSprite(0, 0, 10, 10, 'snow').setOrigin(0).setTileScale(3).setVisible(false);
     this.moon = this.add.image(0, 58, 'moon', 'plain').setScale(2.5).setAlpha(0);
     this.goalGfx = this.add.graphics();
     this.goalText = this.add.text(0, 112, '', { ...textStyle(15, '#f4e4b0'), align: 'right', wordWrap: { width: 300 }, lineSpacing: 3 }).setOrigin(1, 0);
@@ -121,6 +152,7 @@ export class UIScene extends Phaser.Scene {
     this.hudGfx = this.add.graphics();
     this.add.image(26, 84, 'ui', 'coin').setScale(2).setOrigin(0, 0.5);
     this.goldText = this.add.text(64, 84, '', textStyle(22, '#ffe27a')).setOrigin(0, 0.5);
+    this.buffText = this.add.text(20, 118, '', textStyle(16, '#9fe8ff'));
     this.dayText = this.add.text(0, 36, '', textStyle(22)).setOrigin(0.5);
     this.timeText = this.add.text(0, 70, '', textStyle(24, '#ffe27a')).setOrigin(0.5);
     this.energyLabel = this.add.text(0, 0, 'E', textStyle(18, '#9be37a')).setOrigin(0.5);
@@ -188,15 +220,17 @@ export class UIScene extends Phaser.Scene {
     const { W, H } = this;
     this.night.setSize(W, H);
     this.rain.setSize(W, H);
+    this.snow.setSize(W, H);
+    this.frost.setSize(W, H);
     this.moon.setX(W / 2 - 150);
     this.goalText.setX(W - 24);
     this.lastGoal = '-'; // force the goal panel to redraw
     const g = this.hudGfx.clear();
     panel(g, 12, 12, 250, 96, 0.7);
-    panel(g, W - 202, 12, 190, 84, 0.7);
+    panel(g, W - 242, 12, 230, 84, 0.7);
     panel(g, W - 58, H - 250, 44, 230, 0.7);
-    this.dayText.setX(W - 107);
-    this.timeText.setX(W - 107);
+    this.dayText.setX(W - 127);
+    this.timeText.setX(W - 127);
     this.energyLabel.setPosition(W - 36, H - 232);
     this.lastEnergy = -1;
     const x0 = this.hotbarX();
@@ -225,8 +259,13 @@ export class UIScene extends Phaser.Scene {
     const raining = state.weather === 'rain' && !runtime.indoor;
     if (raining) dark = Math.min(0.75, dark + 0.14);
     this.night.setAlpha(runtime.indoor ? 0 : dark);
-    this.rain.setVisible(raining);
-    if (raining) { this.rain.tilePositionX -= 1.2; this.rain.tilePositionY -= 4.5; }
+    // In winter the rain is snow: slow, drifting flakes, and the outdoors gets a pale wash.
+    const winter = seasonOf(state.day) === 3;
+    this.frost.setAlpha(winter && !runtime.indoor ? 0.16 : 0);
+    this.rain.setVisible(raining && !winter);
+    this.snow.setVisible(raining && winter);
+    if (raining && !winter) { this.rain.tilePositionX -= 1.2; this.rain.tilePositionY -= 4.5; }
+    if (raining && winter) { this.snow.tilePositionX -= Math.sin(this.time.now / 900) * 0.25; this.snow.tilePositionY -= 0.5; }
     const moonVisible = !runtime.indoor && !moonMissing();
     this.moon.setFrame(flag('launched') ? 'carrot' : 'plain');
     this.moon.setAlpha(moonVisible ? Math.min(1, Math.max(0, (dark - 0.12) * 4)) : 0);
@@ -241,7 +280,8 @@ export class UIScene extends Phaser.Scene {
     }
     this.hearts.forEach((h, i) => h.setFrame(i < state.hp ? 'heart' : 'heart_empty'));
     this.goldText.setText(`${state.gold}g`);
-    this.dayText.setText(`Day ${state.day}${state.weather === 'rain' ? ' - Rain' : ''}`);
+    this.dayText.setText(`${dateLabel(state.day)}${state.weather === 'rain' ? (seasonOf(state.day) === 3 ? ' - Snow' : ' - Rain') : ''}`);
+    this.buffText.setText([state.buffs.speed ? 'Fast' : '', state.buffs.strength ? 'Strong' : ''].filter(Boolean).join('  '));
     this.timeText.setText(formatTime(state.minutes));
     this.timeText.setColor(state.minutes >= 20 * 60 ? '#9fc8ff' : '#ffe27a');
 
@@ -264,14 +304,20 @@ export class UIScene extends Phaser.Scene {
     });
     state.inventory.forEach((s, i) => {
       this.slotIcons[i].setVisible(!!s);
-      if (s) this.slotIcons[i].setFrame(s.id);
+      if (s) {
+        this.slotIcons[i].setFrame(s.id);
+        // Upgraded tools get a coppery (or steely) shine.
+        const up = (s.id === 'hoe' || s.id === 'can' || s.id === 'sword') && state.upgrades[s.id];
+        if (up) this.slotIcons[i].setTint(s.id === 'sword' ? 0xc8e0ff : 0xffb070);
+        else this.slotIcons[i].clearTint();
+      }
       this.slotQty[i].setText(s && s.qty > 1 ? String(s.qty) : '');
     });
     const sel = state.inventory[state.selected];
     const selId = sel?.id ?? null;
     if (selId !== this.lastItemId) {
       this.lastItemId = selId;
-      if (sel) this.flash(this.itemName, ITEMS[sel.id].name, 1200);
+      if (sel) this.flash(this.itemName, itemName(sel.id), 1200);
       else this.itemName.setAlpha(0);
     }
   }
@@ -426,14 +472,20 @@ export class UIScene extends Phaser.Scene {
   // ------------------------------------------------------------------ shop
 
   private shopRect() {
-    const w = 600, h = 200 + this.entries.length * ROW;
+    this.shopRow = Math.max(30, Math.min(ROW, Math.floor((this.H - 24 - 200) / Math.max(1, this.entries.length))));
+    const w = Math.min(720, this.W - 40), h = 200 + this.entries.length * this.shopRow;
     return { w, h, x: (this.W - w) / 2, y: Math.max(12, (this.H - h) / 2 - 40) };
+  }
+
+  /** Price after Bram's friendship discount. Story items are always full price. */
+  private price(e: ShopEntry): number {
+    return e.story ? e.price : Math.round(e.price * (1 - shopDiscount()));
   }
 
   private openShop(): void {
     this.entries = [
       ...storyShopEntries().map(story => ({ story, name: story.name, price: story.price, desc: story.desc })),
-      ...BASE_SHOP,
+      ...baseShop(),
     ];
     const { w, h, x, y } = this.shopRect();
     const root = this.add.container(0, 0).setDepth(90);
@@ -443,18 +495,20 @@ export class UIScene extends Phaser.Scene {
     root.add([g, sel, this.add.text(x + w / 2, y + 30, "Bram's Seeds & Supplies", textStyle(26, '#ffe27a')).setOrigin(0.5)]);
     const rows: Phaser.GameObjects.Text[] = [];
     const prices: Phaser.GameObjects.Text[] = [];
+    const R = this.shopRow, big = R >= 40;
     this.entries.forEach((e, i) => {
-      const ry = y + 78 + i * ROW;
+      const ry = y + 78 + i * R;
       const icon = e.id ? this.add.image(x + 50, ry, 'items', e.id)
+        : e.tool ? this.add.image(x + 50, ry, 'items', e.tool).setTint(e.tool === 'sword' ? 0xc8e0ff : 0xffb070)
         : e.special === 'backpack' ? this.add.image(x + 50, ry, 'ui', 'coin')
         : e.story?.key === 'suit' ? this.add.image(x + 50, ry, 'items', 'suit')
         : e.story ? this.add.image(x + 50, ry, 'turnipult').setScale(0.4)
         : this.add.image(x + 50, ry, 'ui', 'heart');
-      if (!e.story || e.story.key === 'suit') icon.setScale(2.4);
-      else icon.setScale(1.1);
-      const t = this.add.text(x + 86, ry, e.name, textStyle(22)).setOrigin(0, 0.5);
-      const gel = e.story?.gel ?? e.gel;
-      const p = this.add.text(x + w - 40, ry, `${e.price}g${gel ? ` +${gel} gel` : ''}`, textStyle(22, '#ffe27a')).setOrigin(1, 0.5);
+      if (!e.story || e.story.key === 'suit') icon.setScale(big ? 2.4 : 1.8);
+      else icon.setScale(big ? 1.1 : 0.8);
+      const t = this.add.text(x + 86, ry, e.name, textStyle(big ? 22 : 19)).setOrigin(0, 0.5);
+      const extra = e.story?.gel ? ` +${e.story.gel} gel` : needsText(e.needs);
+      const p = this.add.text(x + w - 40, ry, `${this.price(e)}g${extra}`, textStyle(big ? 22 : 19, '#ffe27a')).setOrigin(1, 0.5);
       for (const o of [t, p]) {
         o.setInteractive({ useHandCursor: true });
         o.on('pointerover', () => { if (this.shop) { this.shop.cursor = i; this.renderShop(); } });
@@ -492,20 +546,18 @@ export class UIScene extends Phaser.Scene {
     const s = this.shop!;
     const { w, x, y } = this.shopRect();
     s.sel.clear();
-    s.sel.fillStyle(0x5a3a20, 1).fillRoundedRect(x + 18, y + 78 + s.cursor * ROW - 20, w - 36, 40, 8);
-    s.sel.lineStyle(2, 0xffe27a, 1).strokeRoundedRect(x + 18, y + 78 + s.cursor * ROW - 20, w - 36, 40, 8);
+    const R = this.shopRow, hh = Math.min(40, R - 2);
+    s.sel.fillStyle(0x5a3a20, 1).fillRoundedRect(x + 18, y + 78 + s.cursor * R - hh / 2, w - 36, hh, 8);
+    s.sel.lineStyle(2, 0xffe27a, 1).strokeRoundedRect(x + 18, y + 78 + s.cursor * R - hh / 2, w - 36, hh, 8);
     this.entries.forEach((e, i) => {
-      const afford = state.gold >= e.price && countItem('gel') >= (e.gel ?? 0);
+      const afford = state.gold >= this.price(e) && (e.needs ?? []).every(([id, n]) => countItem(id) >= n);
       s.prices[i].setColor(afford ? '#ffe27a' : '#b06050');
       s.rows[i].setColor(i === s.cursor ? '#ffffff' : '#e8dcc0');
     });
     const e = this.entries[s.cursor];
-    s.desc.setText(
-      e.special === 'heart' && state.maxHp >= MAX_HEARTS ? 'You already have as many hearts as you can carry.'
-        : e.special === 'backpack' && state.inventory.length >= BACKPACK_SIZE ? 'You already have a Backpack. It suits you.'
-        : e.desc,
-    );
-    s.gold.setText(`Your gold: ${state.gold}g`);
+    const off = shopDiscount();
+    s.desc.setText(e.desc + (off && !e.story ? `  (Friend price: ${Math.round(off * 100)}% off.)` : ''));
+    s.gold.setText(`Gold: ${state.gold}g  Gel: ${countItem('gel')}  Cores: ${countItem('core')}`);
   }
 
   private buy(): void {
@@ -522,24 +574,46 @@ export class UIScene extends Phaser.Scene {
       return;
     }
     const fail = (msg: string) => { sfx('error'); this.shopStatus(msg, false); };
-    if (state.gold < e.price) { fail(`Not enough gold. You need ${e.price - state.gold}g more.`); return; }
-    if (e.gel && countItem('gel') < e.gel) { fail(`Bram also wants ${e.gel} Slime Gel for that. Try Mossy Woods.`); return; }
+    const price = this.price(e);
+    if (state.gold < price) { fail(`Not enough gold. You need ${price - state.gold}g more.`); return; }
+    const short = (e.needs ?? []).find(([id, n]) => countItem(id) < n);
+    if (short) {
+      const [id, n] = short;
+      fail(`Bram also wants ${n} ${ITEMS[id].name}${id === 'core' ? 's from the Deep Woods' : id === 'gel' ? ' from Mossy Woods' : ''}.`);
+      return;
+    }
+    let rebuild = false;
     if (e.special === 'heart') {
       if (state.maxHp >= MAX_HEARTS) { fail('You already have the most hearts possible.'); return; }
       state.maxHp++;
       state.hp = state.maxHp;
+      rebuild = state.maxHp >= MAX_HEARTS;
     } else if (e.special === 'backpack') {
       if (state.inventory.length >= BACKPACK_SIZE) { fail('You already have a Backpack.'); return; }
       while (state.inventory.length < BACKPACK_SIZE) state.inventory.push(null);
+      rebuild = true;
+    } else if (e.special === 'upgrade') {
+      state.upgrades[e.tool!] = 1;
+      rebuild = true;
     } else if (!addItem(e.id!, 1)) {
       fail('Your bag is full!');
       return;
     }
-    state.gold -= e.price;
-    if (e.gel) removeItem('gel', e.gel);
+    state.gold -= price;
+    for (const [id, n] of e.needs ?? []) removeItem(id, n);
     sfx('coin');
+    if (rebuild) {
+      // One-off purchases leave the list.
+      const cursor = s.cursor;
+      this.closeShop();
+      this.openShop();
+      this.shop!.cursor = Math.min(cursor, this.entries.length - 1);
+      this.renderShop();
+      this.shopStatus(`Bought ${e.name}! (-${price}g)`, true);
+      return;
+    }
     this.renderShop();
-    this.shopStatus(`Bought ${e.name}! (-${e.price}g)`, true);
+    this.shopStatus(`Bought ${e.name}! (-${price}g)`, true);
     // A little bounce on the row you bought from.
     const row = s.rows[s.cursor];
     this.tweens.add({ targets: row, scale: 1.12, duration: 90, yoyo: true });
@@ -562,7 +636,7 @@ export class UIScene extends Phaser.Scene {
     const out = new Map<ItemId, { id: ItemId; qty: number; price: number }>();
     for (const s of state.inventory) {
       const def = s && ITEMS[s.id];
-      if (!s || !def?.sell || !['produce', 'material', 'forage'].includes(def.kind)) continue;
+      if (!s || !def?.sell || !['produce', 'material', 'forage', 'food'].includes(def.kind)) continue;
       const e = out.get(s.id) ?? { id: s.id, qty: 0, price: def.sell };
       e.qty += s.qty;
       out.set(s.id, e);
@@ -575,6 +649,8 @@ export class UIScene extends Phaser.Scene {
     const items = this.sellables();
     const total = items.reduce((n, e) => n + e.qty * e.price, 0);
     const rowsCount = items.length ? items.length + 1 : 1; // + "ship everything"
+    // With a full Backpack there can be a dozen kinds of things to sell; shrink the rows to fit the screen.
+    const ROW = Math.max(30, Math.min(44, Math.floor((this.H - 24 - 190) / rowsCount)));
     const w = 680, h = 190 + rowsCount * ROW;
     const x = (this.W - w) / 2, y = Math.max(12, (this.H - h) / 2 - 40);
     cursor = Math.min(cursor, Math.max(0, rowsCount - 1));
@@ -589,8 +665,9 @@ export class UIScene extends Phaser.Scene {
 
     if (items.length) {
       const sel = this.add.graphics();
-      sel.fillStyle(0x5a3a20, 1).fillRoundedRect(x + 18, y + 78 + cursor * ROW - 20, w - 36, 40, 8);
-      sel.lineStyle(2, 0xffe27a, 1).strokeRoundedRect(x + 18, y + 78 + cursor * ROW - 20, w - 36, 40, 8);
+      const hh = Math.min(40, ROW - 2);
+      sel.fillStyle(0x5a3a20, 1).fillRoundedRect(x + 18, y + 78 + cursor * ROW - hh / 2, w - 36, hh, 8);
+      sel.lineStyle(2, 0xffe27a, 1).strokeRoundedRect(x + 18, y + 78 + cursor * ROW - hh / 2, w - 36, hh, 8);
       root.add(sel);
     }
     const button = (bx: number, by: number, label: string, onTap: () => void) => {
@@ -619,7 +696,7 @@ export class UIScene extends Phaser.Scene {
       root.add([hover, this.add.text(x + 76, lastY, 'Ship everything', textStyle(21, cursor === items.length ? '#ffffff' : '#e8dcc0')).setOrigin(0, 0.5)]);
       button(x + w - 80, lastY, `+${total}g`, () => this.sellEverything());
     } else {
-      root.add(this.add.text(x + w / 2, lastY, 'Nothing to sell. Crops, eggs, forage and gel go in here.', textStyle(18, '#e8dcc0')).setOrigin(0.5));
+      root.add(this.add.text(x + w / 2, lastY, 'Nothing to sell. Crops, eggs, milk, cooking, forage and gel go in here.', textStyle(18, '#e8dcc0')).setOrigin(0.5));
     }
     const statusText = this.add.text(x + w / 2, y + h - 80, '', textStyle(20, '#9be37a')).setOrigin(0.5).setAlpha(0);
     root.add([
