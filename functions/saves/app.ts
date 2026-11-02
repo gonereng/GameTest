@@ -155,10 +155,15 @@ export function createApp(pool: Pool, verify: VerifyToken) {
   app.get('/farm/:code', async c => {
     const code = normalizeCode(c.req.param('code'));
     if (!code) return c.json({ error: 'No farm with that code' }, 404);
-    const { rows } = await pool.query<{ data: Record<string, unknown> }>(
-      'SELECT s.data FROM profiles p JOIN saves s ON s.user_id = p.user_id WHERE p.share_code = $1', [code]);
+    const { rows } = await pool.query<{ data: Record<string, unknown> | null }>(
+      'SELECT s.data FROM profiles p LEFT JOIN saves s ON s.user_id = p.user_id WHERE p.share_code = $1', [code]);
     if (!rows.length) return c.json({ error: 'No farm with that code' }, 404);
-    const farm = Object.fromEntries(FARM_FIELDS.filter(k => k in rows[0].data).map(k => [k, rows[0].data[k]]));
+    // The code is real, but that player hasn't put a farm in the cloud yet (it uploads when they sleep).
+    if (!rows[0].data) {
+      return c.json({ error: "That farmer hasn't saved their farm to the cloud yet. They need to sleep in their bed once while signed in." }, 404);
+    }
+    const data = rows[0].data;
+    const farm = Object.fromEntries(FARM_FIELDS.filter(k => k in data).map(k => [k, data[k]]));
     return c.json({ farm });
   });
 

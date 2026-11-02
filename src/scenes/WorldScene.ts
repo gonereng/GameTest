@@ -4,11 +4,11 @@ import { BED_SPAWN, getMap, type Facing, type Interactable, type MapDef, type Ma
 import { T, SOLID, TREE_TILES } from '../tiles';
 import { CROPS, ITEMS, RECIPES, SEASON_NAMES, countOf, plural, type ItemId } from '../items';
 import {
-  DAY_END, addItem, advanceDay, countItem, cropFrame, dateLabel, endVisit, formatTime, inSeason, isMature, removeAt,
+  DAY_END, addItem, advanceDay, countItem, cropFrame, dateLabel, endVisit, formatTime, inSeason, isMature, loadSave, removeAt,
   removeItem, runtime, save, seasonOf, soilKey, startVisit, state, yearOf,
 } from '../state';
 import {
-  claimGift, cloudEnabled, currentUser, fetchBoard, fetchFarm, fetchGifts, formatCode, getProfile, sendGift, setOnBoards,
+  claimGift, cloudEnabled, currentUser, downloadSave, fetchBoard, uploadSave, fetchFarm, fetchGifts, formatCode, getProfile, sendGift, setOnBoards,
   type BoardId,
 } from '../cloud';
 import { askText, cleanCode } from '../textPrompt';
@@ -1086,6 +1086,10 @@ export class WorldScene extends Phaser.Scene {
     ui.toast('Connecting...');
     const p = await getProfile();
     if (!p.ok) { ui.dialogue({ speaker: 'Online', lines: [p.error] }); return; }
+    // Visitors see the farm from the cloud. If this account has nothing there yet (it uploads when you sleep),
+    // put the last saved farm up now. Only when the cloud is empty, so a newer save from another device is never replaced.
+    const local = loadSave();
+    if (local && (await downloadSave()) === null) await uploadSave(local);
     const { code, onBoards } = p.data;
     ui.dialogue({
       speaker: 'Online',

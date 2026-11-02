@@ -109,6 +109,8 @@ check('anyone can visit by code (any case, with a dash)', farm.status === 200 &&
 check('a visit only shows the farm, not the bag, gold or friendships',
   !('inventory' in farm.body.farm) && !('gold' in farm.body.farm) && !('friends' in farm.body.farm));
 check('unknown code -> 404', (await call('GET', '/farm/ZZZZZZZZ')).status === 404);
+const noFarm = await json(await call('GET', `/farm/${(await json(await call('GET', '/me', { token: carol }))).body.code}`));
+check('a code with no cloud save yet says so', noFarm.status === 404 && /hasn't saved their farm/.test(noFarm.body.error), noFarm.body.error);
 check('malformed code -> 404', (await call('GET', '/farm/hello')).status === 404);
 
 // Bob saves too but stays off the boards; Carol opts in with a broken save that must not break the query.
