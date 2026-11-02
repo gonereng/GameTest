@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(neon deploy:*)",
+      "Bash(npm run db:migrate)",
+      "Bash(neon functions get:*)",
+      "Bash(neon neon-auth domain add:*)"
+    ]
+  }
+}
