@@ -18,6 +18,8 @@ export class Critter extends Phaser.Physics.Arcade.Sprite {
   private nextThink = 0;
   private moving = false;
   talks = 0;
+  /** Which of the map's critters this is; used to remember today's milk. */
+  slot = -1;
 
   constructor(scene: Phaser.Scene, x: number, y: number, readonly kind: CritterKind) {
     super(scene, x, y, kind, 0);

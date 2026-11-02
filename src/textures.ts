@@ -594,6 +594,22 @@ const ITEM_DRAW: Partial<Record<ItemId, (c: Ctx, ox: number) => void>> = {
     disc(c, ox, 0, 8, 10, 4, '#e8b060', (_x, y) => y >= 6 && y <= 9);
     for (const x of [5, 8, 11]) fill(c, ox + x, 7, 1, 2, '#a86a30');
   },
+  milk(c, ox) {
+    fill(c, ox + 6, 1, 4, 2, '#c84a3a');
+    fill(c, ox + 6, 3, 4, 2, '#b8c4cc');
+    fill(c, ox + 4, 5, 8, 10, '#8a98a4');
+    fill(c, ox + 5, 5, 6, 9, '#f4f6f8');
+    fill(c, ox + 5, 9, 6, 3, '#7fb4f2');
+    px(c, ox + 6, 6, '#ffffff'); px(c, ox + 6, 7, '#ffffff');
+  },
+  sprinkler(c, ox) {
+    fill(c, ox + 3, 11, 10, 4, '#5a6068');
+    fill(c, ox + 4, 11, 8, 3, '#a8b0bc');
+    fill(c, ox + 7, 5, 2, 6, '#8a98a4');
+    fill(c, ox + 5, 4, 6, 2, '#5a86b0');
+    px(c, ox + 6, 4, '#8ab6e0');
+    for (const [x, y] of [[2, 3], [4, 1], [8, 1], [11, 1], [13, 3]]) px(c, ox + x, y, '#7fb4f2');
+  },
 };
 
 function seedPacket(c: Ctx, ox: number, color: string) {
@@ -723,6 +739,19 @@ export function generateTextures(scene: Phaser.Scene): void {
   // Crop sheet from the Tiny Farm pack: per row, growth frames in columns 0..n, seed bag in 7, produce in 8.
   const sheet = scene.textures.get('tf_crops').getSourceImage() as HTMLImageElement;
   const fromSheet = (c: Ctx, ox: number, col: number, row: number) => c.drawImage(sheet, col * S, row * S, S, S, ox, 0, S, S);
+
+  // Rain: thin slanted streaks on a transparent tile, scrolled across the screen by the UI.
+  const rain = scene.textures.createCanvas('rain', 128, 128)!;
+  const rainCtx = rain.getContext();
+  const rr = mulberry32(4242);
+  for (let i = 0; i < 70; i++) {
+    const x = Math.floor(rr() * 128), y = Math.floor(rr() * 128), len = 6 + Math.floor(rr() * 6);
+    for (let j = 0; j < len; j++) {
+      rainCtx.fillStyle = `rgba(180, 210, 255, ${0.25 + 0.4 * (j / len)})`;
+      rainCtx.fillRect((x - Math.floor(j / 3) + 128) % 128, (y + j) % 128, 1, 1);
+    }
+  }
+  rain.refresh();
 
   const items = scene.textures.createCanvas('items', S * ITEM_ORDER.length, S)!;
   const ic = items.getContext();

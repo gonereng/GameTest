@@ -1,4 +1,5 @@
 import { CROPS, ITEMS, RENAMED_ITEMS, type CropId, type ItemId } from './items';
+import { mulberry32 } from './rng';
 
 export interface Stack {
   id: ItemId;
@@ -9,6 +10,8 @@ export interface Soil {
   watered: boolean;
   crop?: { id: CropId; days: number };
 }
+
+export type Weather = 'sun' | 'rain';
 
 export interface GameState {
   version: number;
@@ -35,9 +38,15 @@ export interface GameState {
   quest: { step: number; flags: Record<string, boolean>; crashDay: number };
   met: string[];
   shipped: number;
+  /** Today's weather. Rain waters every crop on the farm in the morning. */
+  weather: Weather;
+  /** Sprinklers placed on the farm, keyed by "x,y". */
+  sprinklers: string[];
 }
 
 export const HOTBAR_SIZE = 10;
+/** Slots after buying the Backpack from Bram. */
+export const BACKPACK_SIZE = 12;
 export const MAX_STACK = 99;
 export const DAY_START = 6 * 60;
 export const DAY_END = 26 * 60;
@@ -69,6 +78,8 @@ export function newGame(): GameState {
     quest: { step: 0, flags: {}, crashDay: 0 },
     met: [],
     shipped: 0,
+    weather: 'sun',
+    sprinklers: [],
   };
 }
 
@@ -147,6 +158,7 @@ export function loadSave(key = SAVE_KEY): GameState | null {
 /** Updates saves from older versions of the game. */
 function migrate(s: GameState): GameState {
   const rename = (id: string) => (RENAMED_ITEMS[id] ?? id) as ItemId;
+  if (s.inventory.length < HOTBAR_SIZE) s.inventory = [...s.inventory, ...Array(HOTBAR_SIZE - s.inventory.length).fill(null)];
   s.inventory = s.inventory.map(st => (st && ITEMS[rename(st.id)] ? { ...st, id: rename(st.id) } : null));
   for (const soil of Object.values(s.soil)) {
     if (soil.crop) {
@@ -228,13 +240,33 @@ export function cropFrame(soil: Soil): number {
   return Math.min(def.frames - 2, Math.floor((soil.crop.days / def.days) * (def.frames - 1)));
 }
 
-/** Moves to the next morning: watered crops grow, soil dries, forage respawns. */
+/** The 8 tiles around a sprinkler, as soil keys. */
+export function sprinklerReach(key: string): string[] {
+  const [x, y] = key.split(',').map(Number);
+  const out: string[] = [];
+  for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (dx || dy) out.push(soilKey(x + dx, y + dy));
+  return out;
+}
+
+/**
+ * The weather for a day. About one day in five is rainy, but only once the story's moon is back in the sky,
+ * so rain never waters Gerald's Moonpatch for you or clouds the story's nights.
+ */
+export function rollWeather(day: number): Weather {
+  if (!state.quest.flags.launched) return 'sun';
+  return mulberry32(day * 2654435761 + 977)() < 0.2 ? 'rain' : 'sun';
+}
+
+/** Moves to the next morning: watered crops grow, soil dries, forage respawns, then rain and sprinklers water. */
 export function advanceDay(passedOut: boolean): void {
   for (const soil of Object.values(state.soil)) {
     if (soil.crop && soil.watered) soil.crop.days++;
     soil.watered = false;
   }
   state.day++;
+  state.weather = rollWeather(state.day);
+  if (state.weather === 'rain') for (const soil of Object.values(state.soil)) soil.watered = true;
+  for (const key of state.sprinklers) for (const k of sprinklerReach(key)) if (state.soil[k]) state.soil[k].watered = true;
   state.minutes = DAY_START;
   state.forage = {};
   state.hp = state.maxHp;

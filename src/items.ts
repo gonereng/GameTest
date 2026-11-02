@@ -3,9 +3,9 @@ export type ItemId =
   | 'hoe' | 'can' | 'sword'
   | 'seed_strawberry' | 'seed_onion' | 'seed_potato' | 'seed_leek' | 'seed_moonmelon'
   | 'strawberry' | 'onion' | 'potato' | 'leek' | 'moonmelon'
-  | 'gel' | 'berry' | 'mushroom' | 'bread' | 'suit' | 'egg' | 'golden_egg';
+  | 'gel' | 'berry' | 'mushroom' | 'bread' | 'suit' | 'egg' | 'golden_egg' | 'milk' | 'sprinkler';
 
-export type ItemKind = 'tool' | 'seed' | 'produce' | 'material' | 'forage' | 'food';
+export type ItemKind = 'tool' | 'seed' | 'produce' | 'material' | 'forage' | 'food' | 'placeable';
 
 export interface ItemDef {
   id: ItemId;
@@ -16,6 +16,8 @@ export interface ItemDef {
   sell?: number;
   /** Price in the shop. */
   price?: number;
+  /** Slime Gel the shop also wants for it. */
+  gel?: number;
   crop?: CropId;
   energy?: number;
   heal?: number;
@@ -42,6 +44,8 @@ export const ITEMS: Record<ItemId, ItemDef> = {
   mushroom: { id: 'mushroom', name: 'Woodcap', kind: 'forage', sell: 25, energy: 15, heal: 1, desc: 'A sturdy forest mushroom.' },
   suit: { id: 'suit', name: 'Slime Suit', kind: 'tool', desc: 'Hold it to become a slime. Mostly.' },
   bread: { id: 'bread', name: 'Fresh Bread', kind: 'food', price: 40, energy: 45, heal: 1, desc: 'Restores lots of energy.' },
+  milk: { id: 'milk', name: 'Milk', kind: 'produce', sell: 60, energy: 25, desc: 'From Clementine. She would like you to know it was her idea.' },
+  sprinkler: { id: 'sprinkler', name: 'Sprinkler', kind: 'placeable', price: 120, gel: 2, desc: 'Place it on farm grass. Waters the 8 tiles around it every morning.' },
 };
 
 export const ITEM_ORDER = Object.keys(ITEMS) as ItemId[];
