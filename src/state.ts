@@ -50,7 +50,7 @@ export interface GameState {
   /** When this was last saved (ms since 1970), to pick the newer of the cloud and local saves. */
   savedAt: number;
   /** Story progress: see quest.ts for the steps and flags. */
-  quest: { step: number; flags: Record<string, boolean>; crashDay: number };
+  quest: { step: number; flags: Record<string, boolean>; crashDay: number; launchDay?: number };
   met: string[];
   shipped: number;
   /** Today's weather. Rain waters every crop on the farm in the morning. */
@@ -114,7 +114,38 @@ export function newGame(): GameState {
 export let state: GameState = newGame();
 
 /** Facts about the current map that the UI needs, and what happened overnight. */
-export const runtime = { map: 'house', indoor: true, withered: 0 };
+export const runtime = {
+  map: 'house', indoor: true, withered: 0,
+  /** Set while looking around someone else's farm. Nothing is saved during a visit. */
+  visit: null as null | { name: string; code: string },
+};
+
+/** Your own game, put aside while visiting another farm. */
+let home: GameState | null = null;
+
+/**
+ * Shows someone else's farm: their soil, crops, sprinklers and story, with your own bag and hearts.
+ * Returns false if the farm data can't be used.
+ */
+export function startVisit(farm: Partial<GameState>, code: string): boolean {
+  const v = fromSaveData({ ...farm, version: 1 });
+  if (!v) return false;
+  home ??= state;
+  Object.assign(v, {
+    inventory: home.inventory, selected: home.selected, hp: home.hp, maxHp: home.maxHp, energy: home.energy,
+    maxEnergy: home.maxEnergy, gold: home.gold, upgrades: home.upgrades, buffs: home.buffs, minutes: 12 * 60,
+  });
+  state = v;
+  runtime.visit = { name: v.playerName || 'Farmer', code };
+  return true;
+}
+
+/** Back to your own game, exactly as you left it. */
+export function endVisit(): void {
+  if (home) state = home;
+  home = null;
+  runtime.visit = null;
+}
 
 export function startNewGame(playerName = 'Farmer'): void {
   state = newGame();
@@ -128,6 +159,7 @@ export function onSave(fn: (s: GameState) => void): void {
 }
 
 export function save(): void {
+  if (runtime.visit) return; // never save someone else's farm as yours
   state.savedAt = Date.now();
   try {
     localStorage.setItem(SAVE_KEY, JSON.stringify(state));

@@ -105,3 +105,13 @@ export const STARTING_RECIPES: DishId[] = ['soup', 'omelette'];
 export const RENAMED_ITEMS: Record<string, ItemId> = {
   carrot: 'strawberry', turnip: 'potato', seed_carrot: 'seed_strawberry', seed_turnip: 'seed_potato',
 };
+
+/** "Strawberry" -> "Strawberries", "Egg" -> "Eggs", "Wild Berries" stays as it is. */
+export function plural(name: string): string {
+  if (name.endsWith('s')) return name;
+  if (/[^aeiou]y$/.test(name)) return name.slice(0, -1) + 'ies';
+  return name + 's';
+}
+
+/** "1 Egg", "5 Eggs". */
+export const countOf = (id: ItemId, n: number) => `${n} ${n === 1 ? ITEMS[id].name : plural(ITEMS[id].name)}`;

@@ -2,11 +2,16 @@ import Phaser from 'phaser';
 import { TILE, ZOOM } from '../config';
 import { BED_SPAWN, getMap, type Facing, type Interactable, type MapDef, type MapId, type NpcDef, type Point, type Warp } from '../maps';
 import { T, SOLID, TREE_TILES } from '../tiles';
-import { CROPS, ITEMS, RECIPES, SEASON_NAMES, type ItemId } from '../items';
+import { CROPS, ITEMS, RECIPES, SEASON_NAMES, countOf, plural, type ItemId } from '../items';
 import {
-  DAY_END, addItem, advanceDay, countItem, cropFrame, dateLabel, formatTime, inSeason, isMature, removeAt,
-  removeItem, runtime, save, seasonOf, soilKey, state, yearOf,
+  DAY_END, addItem, advanceDay, countItem, cropFrame, dateLabel, endVisit, formatTime, inSeason, isMature, removeAt,
+  removeItem, runtime, save, seasonOf, soilKey, startVisit, state, yearOf,
 } from '../state';
+import {
+  claimGift, cloudEnabled, currentUser, fetchBoard, fetchFarm, fetchGifts, formatCode, getProfile, sendGift, setOnBoards,
+  type BoardId,
+} from '../cloud';
+import { askText, cleanCode } from '../textPrompt';
 import { DEEP_PATH, DEEP_UNLOCK_SLIMES } from '../maps';
 import {
   FRIEND_NAMES, canGift, chatted, claimRewards, friendsSummary, giftedToday, giveGift, heartBar, isFriend, type FriendId,
@@ -163,8 +168,10 @@ export class WorldScene extends Phaser.Scene {
     if (def.farmable) this.buildFarm();
     this.spawnNpcs();
     this.spawnSlimes(spawn);
-    this.spawnForage();
-    this.spawnEggs();
+    if (!runtime.visit) {
+      this.spawnForage();
+      this.spawnEggs();
+    }
     this.story = new Story(this);
     this.story.create();
 
@@ -199,7 +206,7 @@ export class WorldScene extends Phaser.Scene {
     else if (this.args.wake) this.time.delayedCall(500, () => ui.dialogue({ lines: [this.args.wake!] }));
     if (this.args.newDay) {
       this.time.delayedCall(300, () => ui.toast(`${dateLabel(state.day)} - Good morning!`));
-      this.morningNews();
+      void this.morningNews();
       if (state.weather === 'rain') this.time.delayedCall(700, () => ui.toast("It's raining! Your crops are watered today."));
       this.story.onNewDay();
     }
@@ -210,7 +217,7 @@ export class WorldScene extends Phaser.Scene {
   private pbody(): Body { return this.player.body as Body; }
 
   /** Things to tell the player when they wake up: a new season, withered crops, the Deep Woods opening. */
-  private morningNews(): void {
+  private async morningNews(): Promise<void> {
     const news: string[] = [];
     const dayOfSeason = (state.day - 1) % 28 + 1;
     if (dayOfSeason === 1 && state.day > 1) {
@@ -225,7 +232,8 @@ export class WorldScene extends Phaser.Scene {
         `"${DEEP_UNLOCK_SLIMES} slimes! The overgrown path on the west side of Mossy Woods has been cleared. The Deep Woods lie beyond. Tougher slimes, better loot. Do be careful. - Mayor Orla"`,
       );
     }
-    if (news.length) this.time.delayedCall(900, () => ui.dialogue({ lines: news }));
+    news.push(...await this.checkMail());
+    if (news.length) this.time.delayedCall(900, () => { if (this.scene.isActive()) ui.dialogue({ lines: news }); });
   }
 
   /** Outdoor maps take on the season's colours: warm in fall, frosty in winter. */
@@ -382,7 +390,7 @@ export class WorldScene extends Phaser.Scene {
     const now = this.time.now;
     const paused = modal.open;
     if (!paused) {
-      this.tickClock(delta);
+      if (!runtime.visit) this.tickClock(delta);
       if (this.transitioning) return;
     }
 
@@ -488,7 +496,9 @@ export class WorldScene extends Phaser.Scene {
   private arrive(): boolean {
     const { x, y } = this.grid;
     const w = this.def.warps.find(w => x >= w.x && x < w.x + w.w && y >= w.y && y < w.y + w.h && (!w.requires || flag(w.requires)));
-    if (w) {
+    if (w && runtime.visit) {
+      ui.toast("Visitors stay on the farm. Press Esc (or the menu button) to go home.");
+    } else if (w) {
       this.placePlayer();
       this.travel(w);
       return true;
@@ -676,6 +686,7 @@ export class WorldScene extends Phaser.Scene {
 
   /** Talks, reads, harvests or picks up whatever is in front of the player. Returns true if something happened. */
   private interact(fromUse = false): boolean {
+    if (runtime.visit) return this.visitorInteract();
     const t = this.facingTarget();
     for (const n of this.npcs) {
       if (Phaser.Math.Distance.Between(t.px, t.py, n.sprite.x, n.sprite.y + 4) < 13) {
@@ -880,6 +891,21 @@ export class WorldScene extends Phaser.Scene {
     ui.sell();
   }
 
+  /** On someone else's farm you can chat with the animals and read signs, but not touch anything. */
+  private visitorInteract(): boolean {
+    const t = this.facingTarget();
+    const critter = this.critters.find(c => Phaser.Math.Distance.Between(t.px, t.py, c.x, (c.body as Body).center.y) < 14);
+    if (critter) {
+      const lines = CRITTER_LINES[critter.kind];
+      ui.dialogue({ lines: lines[critter.talks++ % lines.length] });
+      return true;
+    }
+    const it = this.def.interact.find(i => i.x === t.tx && i.y === t.ty);
+    if (it?.kind === 'sign') { ui.dialogue({ lines: it.lines ?? [] }); return true; }
+    ui.toast(`You're visiting ${runtime.visit!.name}'s farm, so you can look but not touch. Esc to go home.`);
+    return true;
+  }
+
   private useSelected(): void {
     if (this.interact(true)) return;
     const slot = state.selected;
@@ -1023,6 +1049,14 @@ export class WorldScene extends Phaser.Scene {
   }
 
   private openMenu(): void {
+    if (runtime.visit) {
+      ui.dialogue({
+        speaker: 'Visiting',
+        lines: [`You're visiting ${runtime.visit.name}'s farm (${formatCode(runtime.visit.code)}).`],
+        choices: [{ label: 'Go home', action: () => this.goHome() }, { label: 'Keep looking around' }],
+      });
+      return;
+    }
     ui.dialogue({
       speaker: 'Menu',
       lines: [`{name}  -  ${dateLabel(state.day)}, Year ${yearOf(state.day)} (day ${state.day}), ${formatTime(state.minutes)}.  Gold: ${state.gold}g.  Slimes defeated: ${state.slimes}.` +
@@ -1030,6 +1064,7 @@ export class WorldScene extends Phaser.Scene {
       choices: [
         { label: 'Resume' },
         { label: 'Wait 1 hour', action: () => this.skipTime(60, false) },
+        ...(cloudEnabled ? [{ label: 'Online: farm code, leaderboards, visits, gifts', action: () => void this.openOnline() }] : []),
         { label: 'Friends', action: () => ui.dialogue({ speaker: 'Friends', lines: [friendsSummary().join('\n') + '\nTalk every day, and press Use while holding an item to give a gift.'] }) },
         { label: 'Controls', action: () => ui.dialogue({ speaker: 'Controls', lines: CONTROLS }) },
         { label: isMuted() ? 'Sound: off (turn on)' : 'Sound: on (turn off)', action: () => this.toggleSound() },
@@ -1039,6 +1074,132 @@ export class WorldScene extends Phaser.Scene {
         },
       ],
     });
+  }
+
+  // ------------------------------------------------------------------ online
+
+  private async openOnline(): Promise<void> {
+    if (!currentUser()) {
+      ui.dialogue({ speaker: 'Online', lines: ['Sign in on the title screen (Quit to title, then Sign in) to share your farm, see leaderboards and send gifts.'] });
+      return;
+    }
+    ui.toast('Connecting...');
+    const p = await getProfile();
+    if (!p.ok) { ui.dialogue({ speaker: 'Online', lines: [p.error] }); return; }
+    const { code, onBoards } = p.data;
+    ui.dialogue({
+      speaker: 'Online',
+      lines: [
+        `Your farm code: ${formatCode(code)}\nShare it so friends can visit your farm and send you gifts.\n` +
+        `Leaderboards: ${onBoards ? 'you are listed (as ' + (state.playerName || 'Farmer') + ').' : 'you are not listed.'} They update when you sleep.`,
+      ],
+      choices: [
+        { label: 'Leaderboards', action: () => void this.showBoards() },
+        { label: 'Visit a farm', action: () => void this.visitFarm() },
+        { label: "Send a gift (the item you're holding)", action: () => void this.giftToFarm() },
+        { label: 'Check the mailbox', action: () => void this.checkMail(true).then(lines => ui.dialogue({ speaker: 'Mailbox', lines })) },
+        {
+          label: onBoards ? 'Take me off the leaderboards' : 'List me on the leaderboards',
+          action: () => void setOnBoards(!onBoards).then(r => ui.toast(r.ok ? (r.data.onBoards ? "You're on the leaderboards." : "You're off the leaderboards.") : r.error)),
+        },
+        { label: 'Back' },
+      ],
+    });
+  }
+
+  private async showBoards(): Promise<void> {
+    ui.toast('Loading leaderboards...');
+    const pages: string[] = [];
+    for (const board of ['shipped', 'slimes', 'moon'] as BoardId[]) {
+      const r = await fetchBoard(board);
+      if (!r.ok) { ui.dialogue({ speaker: 'Leaderboards', lines: [r.error] }); return; }
+      const rows = r.data.rows.map((row, i) => `${String(i + 1).padStart(2)}. ${row.name.padEnd(16)} ${row.value}`);
+      pages.push(`${r.data.title}\n${rows.length ? rows.join('\n') : '(Nobody yet. Be the first!)'}`);
+    }
+    ui.dialogue({ speaker: 'Leaderboards', lines: pages });
+  }
+
+  private async visitFarm(): Promise<void> {
+    const code = await askText(this.input.keyboard, {
+      label: "Visit a friend's farm", hint: 'Type their farm code, like ABCD-EFGH.', ok: 'Visit', maxLength: 9, clean: cleanCode,
+    });
+    if (!code) return;
+    ui.toast('Walking over...');
+    const r = await fetchFarm(code);
+    if (!r.ok) { ui.dialogue({ speaker: 'Online', lines: [r.error] }); return; }
+    if (!startVisit(r.data.farm, code)) { ui.dialogue({ speaker: 'Online', lines: ["That farm couldn't be loaded."] }); return; }
+    this.transitioning = true;
+    this.cameras.main.fadeOut(300, 0, 0, 0);
+    this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
+      this.scene.restart({ map: 'farm', spawn: { x: 6, y: 7 }, facing: 'down', wake: `Welcome to ${runtime.visit!.name}'s farm! Look around as much as you like. Press Esc to go home.` });
+    });
+  }
+
+  private goHome(): void {
+    endVisit();
+    this.transitioning = true;
+    this.cameras.main.fadeOut(300, 0, 0, 0);
+    this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
+      this.scene.restart({ map: 'farm', spawn: { x: 6, y: 7 }, facing: 'down' });
+    });
+  }
+
+  private async giftToFarm(): Promise<void> {
+    const slot = state.selected;
+    const stack = state.inventory[slot];
+    if (!stack || !canGift(stack.id) || stack.id === 'suit') {
+      ui.dialogue({ speaker: 'Online', lines: ['Hold the item you want to send (crops, food, seeds, gel, cores...) and try again.'] });
+      return;
+    }
+    const item = stack.id;
+    const code = await askText(this.input.keyboard, {
+      label: `Send ${ITEMS[item].name} to...`, hint: "Their farm code, like ABCD-EFGH. It arrives in their mailbox the next morning.",
+      ok: 'Next', maxLength: 9, clean: cleanCode,
+    });
+    if (!code) return;
+    const have = countItem(item);
+    const amounts = [...new Set([1, 5, Math.min(10, have)])].filter(n => n <= have);
+    ui.dialogue({
+      speaker: 'Online',
+      lines: [`How many ${plural(ITEMS[item].name)} to send to ${formatCode(code)}? (You have ${have}.)`],
+      choices: [
+        ...amounts.map(n => ({
+          label: `Send ${n}`,
+          action: () => void (async () => {
+            if (countItem(item) < n) return;
+            const r = await sendGift(code, item, n);
+            if (!r.ok) { sfx('error'); ui.dialogue({ speaker: 'Online', lines: [r.error] }); return; }
+            removeItem(item, n);
+            // Save straight away, so the items can't be sent and then kept by quitting.
+            save();
+            sfx('coin');
+            ui.toast(`Sent ${countOf(item, n)} to ${formatCode(code)}!`);
+          })(),
+        })),
+        { label: 'Cancel' },
+      ],
+    });
+  }
+
+  /** Collects gifts from other players into the bag. Returns lines describing what arrived. */
+  private async checkMail(always = false): Promise<string[]> {
+    if (!currentUser() || runtime.visit) return [];
+    const r = await fetchGifts();
+    if (!r.ok) return always ? [r.error] : [];
+    const lines: string[] = [];
+    let full = false;
+    for (const g of r.data.gifts) {
+      const id = g.item as ItemId;
+      if (!ITEMS[id]) continue;
+      if (!addItem(id, g.qty)) { full = true; break; }
+      const claimed = await claimGift(g.id);
+      if (!claimed.ok) { removeItem(id, g.qty); continue; }
+      lines.push(`From ${g.from}: ${countOf(id, g.qty)}${g.note ? ` - "${g.note}"` : ''}`);
+    }
+    if (lines.length) save();
+    const out = lines.length ? [`You've got mail!\n${lines.join('\n')}`] : always ? ['Your mailbox is empty.'] : [];
+    if (full) out.push("Your bag is full. The rest will wait in your mailbox until you make room.");
+    return out;
   }
 
   // ------------------------------------------------------------------ combat

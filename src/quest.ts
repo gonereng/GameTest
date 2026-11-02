@@ -475,6 +475,7 @@ export class Story implements BossHost {
             this.glow?.destroy();
             cam.flash(800, 255, 255, 230);
             setFlag('launched');
+            state.quest.launchDay = state.day;
             state.quest.step = Q.DONE;
             this.launching = false;
             this.w.lockedUntil = 0;

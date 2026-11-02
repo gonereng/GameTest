@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { CROPS, ITEMS, type ItemId } from '../items';
+import { CROPS, ITEMS, plural, type ItemId } from '../items';
 import {
   BACKPACK_SIZE, addItem, countItem, dateLabel, formatTime, inSeason, itemName, removeItem, runtime, seasonOf, state, type ToolId,
 } from '../state';
@@ -57,12 +57,6 @@ function panel(g: Phaser.GameObjects.Graphics, x: number, y: number, w: number, 
   g.lineStyle(3, BORDER, 1).strokeRoundedRect(x, y, w, h, 10);
 }
 
-/** "Strawberry" -> "Strawberries", "Egg" -> "Eggs", "Wild Berries" stays as it is. */
-function plural(name: string): string {
-  if (name.endsWith('s')) return name;
-  if (/[^aeiou]y$/.test(name)) return name.slice(0, -1) + 'ies';
-  return name + 's';
-}
 
 /** How dark the night overlay is at a given time. */
 function nightAlpha(min: number): number {
@@ -323,8 +317,8 @@ export class UIScene extends Phaser.Scene {
   }
 
   private updateGoal(): void {
-    const goal = goalText();
-    const deadline = deadlineText();
+    const goal = runtime.visit ? `Visiting ${runtime.visit.name}'s farm. Look, don't touch!` : goalText();
+    const deadline = runtime.visit ? 'Esc: go home' : deadlineText();
     const text = goal ? `${goal}${deadline ? `\n${deadline}` : ''}` : '';
     if (text === this.lastGoal) return;
     this.lastGoal = text;

@@ -87,10 +87,23 @@ Game (GitHub Pages) --sign in--> Neon Auth (managed accounts)
 - `neon.ts`: declares Neon Auth (`auth: true`) and the `saves` Function.
 - `functions/saves/`: the Function (Hono + `pg` + `jose`). It checks the token against Neon Auth's keys and
   only ever reads or writes the row for that token's user. `saves.test.mts` covers it end to end.
-- `migrations/` + `npm run db:migrate`: the database schema, applied once each.
+- `migrations/` + `npm run db:migrate`: the database schema, applied once each. `002_social.sql` adds
+  `profiles` (farm codes, leaderboard opt-in) and `gifts` (the mailbox).
 - `src/cloud.ts`, `src/accountPrompt.ts`: sign-in, sign-up and save upload/download in the game.
 - Without `VITE_NEON_AUTH_URL` and `VITE_SAVES_URL` at build time, accounts are hidden and the game
   saves on the device only. Saves always go to the device first, so a failed upload loses nothing.
+
+### Online features (Menu → Online, when signed in)
+
+- **Farm code:** every account gets a code like `ABCD-EFGH`. Share it with friends.
+- **Visiting:** type a friend's code to walk around their farm: their soil, crops, sprinklers and story, with your
+  own bag. It's look-don't-touch, nothing is saved, and Esc takes you home. The server only sends the farm part
+  of the save (no bag, gold or friendships).
+- **Leaderboards:** most gold earned, most slimes defeated, and fastest moon rescue. Opt-in (off by default);
+  you're listed by your farmer name, and scores update when you sleep.
+- **Gifts:** hold an item, choose *Send a gift*, enter a code and how many (up to 10). It arrives in their mailbox
+  and is collected the next morning (or with *Check the mailbox*). The server only accepts giftable items, and
+  limits gifts to 10 a day per sender and 50 waiting per mailbox. Sending saves your game straight away.
 
 Deploying it (needs a Neon login or `NEON_API_KEY`):
 
