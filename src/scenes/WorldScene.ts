@@ -25,6 +25,7 @@ import { Story, flag, goalText, wearingSuit } from '../quest';
 import { consumeTouch, touch } from '../touch';
 import { Critter, CRITTER_LINES } from '../critters';
 import { Cat } from '../cat';
+import { SideQuests, cowHasHat, mayorClementine, sideGoals } from '../sidequests';
 import { CHARACTERS } from '../textures';
 
 type Body = Phaser.Physics.Arcade.Body;
@@ -102,6 +103,7 @@ export class WorldScene extends Phaser.Scene {
   npcs: Npc[] = [];
   lockedUntil = 0;
   private story!: Story;
+  private side!: SideQuests;
   private keys!: Record<KeyName, Phaser.Input.Keyboard.Key>;
   private facing: Facing = 'down';
   private slimes: Slime[] = [];
@@ -189,6 +191,10 @@ export class WorldScene extends Phaser.Scene {
     }
     this.story = new Story(this);
     this.story.create();
+    this.side = new SideQuests(this);
+    this.side.create();
+    // Clementine keeps her campaign hat once she has it.
+    if (this.def.id === 'farm' && cowHasHat()) this.critters.find(c => c.kind === 'cow')?.wearHat();
 
     const cam = this.cameras.main;
     cam.setZoom(ZOOM);
@@ -232,6 +238,7 @@ export class WorldScene extends Phaser.Scene {
       void this.morningNews();
       if (state.weather === 'rain') this.time.delayedCall(700, () => ui.toast("It's raining! Your crops are watered today."));
       this.story.onNewDay();
+      this.side.onNewDay();
     }
   }
 
@@ -484,6 +491,7 @@ export class WorldScene extends Phaser.Scene {
     if (!tile || tile.collides) return false;
     if (this.hasSprinkler(x, y)) return false;
     if (this.cat && x === this.cat.tx && y === this.cat.ty) return false;
+    if (this.side?.blocks(x, y)) return false;
     return !this.npcs.some(n => Math.floor(n.sprite.x / TILE) === x && Math.floor((n.sprite.y + 4) / TILE) === y);
   }
 
@@ -562,6 +570,7 @@ export class WorldScene extends Phaser.Scene {
       this.tickAcc -= MS_PER_MINUTE;
       state.minutes++;
       this.story.onMinute();
+      this.side.onMinute();
       if (this.transitioning) return;
       if (state.minutes === 24 * 60) ui.toast("It's midnight. You should head to bed soon.");
       if (state.minutes >= DAY_END) {
@@ -730,11 +739,13 @@ export class WorldScene extends Phaser.Scene {
     if (this.petCat()) return true;
     const critter = this.critters.find(c => Phaser.Math.Distance.Between(t.px, t.py, c.x, (c.body as Body).center.y) < 14);
     if (critter) {
+      if (this.side.critter(critter)) return true;
       if (this.milk(critter)) return true;
       const lines = CRITTER_LINES[critter.kind];
       ui.dialogue({ lines: lines[critter.talks++ % lines.length] });
       return true;
     }
+    if (this.side.interactAt(t.tx, t.ty)) return true;
     if (this.story.interactAt(t.tx, t.ty, fromUse)) return true;
     const it = this.def.interact.find(i => i.x === t.tx && i.y === t.ty);
     if (it && fromUse && it.kind === 'shop' && this.offerGift('bram')) return true;
@@ -755,11 +766,13 @@ export class WorldScene extends Phaser.Scene {
       if (c.talks === 0) { c.talks++; ui.dialogue({ lines: ['Moo.', "(You've already had today's milk. Come back tomorrow.)"] }); return true; }
       return false;
     }
-    if (!addItem('milk', 1)) { ui.toast('Your bag is full!'); return true; }
+    // Mayor Clementine gives twice as much. It's in the decree.
+    const n = mayorClementine() ? 2 : 1;
+    if (!addItem('milk', n)) { ui.toast('Your bag is full!'); return true; }
     state.forage[key] = true;
     sfx('milk');
     this.popIcon('milk', c.x, c.y - 8);
-    ui.toast('+1 Milk');
+    ui.toast(`+${n} Milk`);
     return true;
   }
 
@@ -807,6 +820,7 @@ export class WorldScene extends Phaser.Scene {
   private talk(n: Npc): void {
     const dx = this.player.x - n.sprite.x, dy = this.player.y - n.sprite.y;
     this.faceNpc(n, Math.abs(dx) > Math.abs(dy) ? (dx < 0 ? 'left' : 'right') : dy < 0 ? 'up' : 'down');
+    if (this.side.talk(n.def)) return;
     if (this.story.talk(n.def, n.sprite)) return;
     if (!n.def.chat.length) return;
     let lines: string[];
@@ -902,6 +916,7 @@ export class WorldScene extends Phaser.Scene {
         break;
       case 'shop': {
         chatted('bram');
+        if (this.side.shopCounter()) break;
         const greeting = this.story.shopGreeting()
           ?? [state.met.includes('bram') ? 'Back again, {name}? Have a look.' : "Welcome to Bram's, {name}! Seeds, snacks, and the odd trinket. Have a look."];
         ui.dialogue({ speaker: 'Bram', lines: [...greeting, ...claimRewards('bram')], onClose: () => ui.shop() });
@@ -1104,7 +1119,7 @@ export class WorldScene extends Phaser.Scene {
     ui.dialogue({
       speaker: 'Menu',
       lines: [`{name}  -  ${dateLabel(state.day)}, Year ${yearOf(state.day)} (day ${state.day}), ${formatTime(state.minutes)}.  Gold: ${state.gold}g.  Slimes defeated: ${state.slimes}.` +
-        (goalText() ? `\nGoal: ${goalText()}` : '')],
+        [goalText(), ...sideGoals()].filter(Boolean).map(g => `\nGoal: ${g}`).join('')],
       choices: [
         { label: 'Resume' },
         { label: 'Wait 1 hour', action: () => this.skipTime(60, false) },

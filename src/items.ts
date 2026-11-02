@@ -8,7 +8,7 @@ export type ItemId =
   | 'hoe' | 'can' | 'sword'
   | 'seed_strawberry' | 'seed_onion' | 'seed_potato' | 'seed_leek' | 'seed_moonmelon'
   | 'strawberry' | 'onion' | 'potato' | 'leek' | 'moonmelon'
-  | 'gel' | 'berry' | 'mushroom' | 'bread' | 'suit' | 'egg' | 'golden_egg' | 'milk' | 'sprinkler' | 'core'
+  | 'gel' | 'berry' | 'mushroom' | 'bread' | 'suit' | 'egg' | 'golden_egg' | 'milk' | 'sprinkler' | 'core' | 'tophat' | 'cake'
   | DishId;
 
 export type ItemKind = 'tool' | 'seed' | 'produce' | 'material' | 'forage' | 'food' | 'placeable';
@@ -59,6 +59,8 @@ export const ITEMS: Record<ItemId, ItemDef> = {
   tart: { id: 'tart', name: 'Berry Tart', kind: 'food', sell: 160, energy: 40, heal: 2, desc: "Pip's recipe. Sticky in the best way." },
   stew: { id: 'stew', name: 'Moon Stew', kind: 'food', sell: 420, energy: 100, heal: 3, buff: 'strength', desc: "Orla's recipe. Makes you Strong until bedtime." },
   pie: { id: 'pie', name: 'Leek Pie', kind: 'food', sell: 230, energy: 70, buff: 'strength', desc: "Bram's recipe. Makes you Strong until bedtime." },
+  tophat: { id: 'tophat', name: 'Tiny Top Hat', kind: 'tool', price: 150, desc: 'Very small. Very distinguished. Cow-sized.' },
+  cake: { id: 'cake', name: 'Harvest Cake', kind: 'food', sell: 500, energy: 100, heal: 3, desc: "Hazel's legendary Harvest Cake. Ten eggs' worth of glory." },
   sprinkler: { id: 'sprinkler', name: 'Sprinkler', kind: 'placeable', price: 120, gel: 2, desc: 'Place it on farm grass. Waters the 8 tiles around it every morning.' },
 };
 
