@@ -69,8 +69,8 @@ and fullscreen. Tap to advance dialogue. In the shop, tap an item twice to buy i
 
 ## The story: "The Moon Is in My Turnip"
 
-At 10 PM on Day 1 the moon falls onto your farm. It's a talking turnip named Gerald, and it has to be
-back in the sky by midnight on Day 4. Follow the goal panel under the clock (top right). The full
+At 10 PM on Day 1 the moon falls onto your farm. It's a talking turnip named Gerald. Talk to him and
+agree to help, and you have three days to get him back into the sky (until then, there's no rush). Follow the goal panel under the clock (top right). The full
 design, including every scene and both endings, is in [docs/STORY.md](docs/STORY.md).
 
 Spoiler-free tips: talk to everyone, keep some Slime Gel, and water the soil right next to Gerald.
@@ -102,7 +102,9 @@ Game (GitHub Pages) --sign in--> Neon Auth (managed accounts)
   own bag. It's look-don't-touch, nothing is saved, and Esc takes you home. The server only sends the farm part
   of the save (no bag, gold or friendships). While you play, your game sends a small live view of your farm a few
   seconds after it changes (`PUT /me/farm`, separate from your save), and a visit refreshes every 10 seconds, so
-  visitors see crops as you plant them. Animals wander on each screen independently.
+  visitors see crops as you plant them. Animals are in sync too: where each animal walks is worked out from the
+  real clock (a seeded path around its home), so every player sees it in the same place without any extra
+  network traffic, as long as their device clocks are right.
 - **Leaderboards:** most gold earned, most slimes defeated, and fastest moon rescue. Opt-in (off by default);
   you're listed by your farmer name, and scores update when you sleep.
 - **Gifts:** hold an item, choose *Send a gift*, enter a code and how many (up to 10). It arrives in their mailbox

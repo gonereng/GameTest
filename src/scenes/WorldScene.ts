@@ -448,7 +448,9 @@ export class WorldScene extends Phaser.Scene {
 
     const disguised = wearingSuit();
     for (const s of this.slimes) s.think(now, this.player, paused, disguised);
-    for (const c of this.critters) c.think(now, paused);
+    // Animals follow the real clock (not the game's), so every player sees them in the same places.
+    const wall = Date.now();
+    for (const c of this.critters) c.think(wall);
     this.story.update(now, paused);
     this.checkPickups();
 
@@ -593,9 +595,9 @@ export class WorldScene extends Phaser.Scene {
     this.placePlayer();
   }
 
-  /** The pack's sideways frames face left; the slime suit's face right. */
+  /** The farmer's sideways frames (Tiny Farm pack, row 2) and the slime suit's both face right, so mirror them for left. */
   private flipPlayer(): boolean {
-    return this.skin() === 'farmer' ? this.facing === 'right' : this.facing === 'left';
+    return this.facing === 'left';
   }
 
   private setIdleFrame(): void {
@@ -624,11 +626,16 @@ export class WorldScene extends Phaser.Scene {
         const base = (y + 1) * TILE - 1;
         this.treeImages.push(this.add.image((x + 0.5) * TILE, base + 1, 'tf_maple', big ? 'big' : 'medium').setOrigin(0.5, 1).setDepth(base));
       }
+    // Only the map decides where animals can walk (not crops or anything else that differs between players),
+    // so their paths are the same for everyone.
+    const solid = new Set(SOLID);
+    const walkable = (x: number, y: number) => {
+      const t = this.def.tiles[y]?.[x];
+      if (t === undefined || solid.has(t)) return false;
+      return !(this.def.id === 'farm' && x === CAT_SPOT.x && y === CAT_SPOT.y);
+    };
     for (const [i, c] of this.def.critters.entries()) {
-      const critter = new Critter(this, (c.x + 0.5) * TILE, (c.y + 0.5) * TILE, c.kind);
-      critter.slot = i;
-      this.physics.add.collider(critter, this.layer);
-      this.critters.push(critter);
+      this.critters.push(new Critter(this, c.kind, { x: c.x, y: c.y }, i, this.def.id, walkable, TILE));
     }
   }
 

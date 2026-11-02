@@ -15,7 +15,9 @@ so they quietly chewed through the string.
 
 It worked a bit too well. The moon fell into your farm.
 
-**The deadline:** if Gerald isn't back in the sky by **midnight on Day 4**, the night never ends.
+**The deadline:** once you agree to help, Gerald has three days. If he isn't back in the sky by
+**midnight on the third day after you said yes** (Day 4 if you agree on the morning after the crash),
+the night never ends. Until you agree, nothing is on the clock: he waits in the crater as long as it takes.
 (The clock literally stops at 11:59 PM, the screen stays dark, and everyone in town starts
 speaking only in whispers.)
 
@@ -71,8 +73,15 @@ A 2x2 crater has replaced part of the field. In it sits a **giant glowing turnip
 > **Gerald:** Ah. Hello. Please don't eat me.
 > **Gerald:** I am the Moon. You may call me Gerald.
 > **Gerald:** I seem to have fallen into your vegetable. It was the nearest soft thing.
-> **Gerald:** Someone cut my string. If I am not back up by midnight in three days,
-> the night will simply... continue. Forever. Which I'm told is bad for crops.
+> **Gerald:** Someone cut my string. Once I start trying to get back up, I'll have three days
+> before the sky forgets me and the night simply... continues. Forever.
+> **Gerald:** Will you help me get home?
+
+The player chooses **"I'll help you get home"** or **"Not right now"**. Saying no is fine: Gerald stays
+in his crater (the goal panel says he's waiting), and asks again next time you talk to him. Saying yes
+starts the quest and its three-day countdown from that day.
+
+> **Gerald:** Splendid! Then we have until midnight on Day 4. I'm told endless night is bad for crops.
 
 **Quest step:** *Ask around town about the Moonstring.*
 
