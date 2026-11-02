@@ -109,6 +109,18 @@ check('anyone can visit by code (any case, with a dash)', farm.status === 200 &&
 check('a visit only shows the farm, not the bag, gold or friendships',
   !('inventory' in farm.body.farm) && !('gold' in farm.body.farm) && !('friends' in farm.body.farm));
 check('unknown code -> 404', (await call('GET', '/farm/ZZZZZZZZ')).status === 404);
+// Live farm view: newer than the save, so visitors see today's crops; stripped to farm fields only.
+check('PUT /me/farm without a token -> 401', (await call('PUT', '/me/farm', { body: '{"version":1}' })).status === 401);
+check('PUT /me/farm rejects non-farms -> 400', (await call('PUT', '/me/farm', { token: alice, body: '{"hello":1}' })).status === 400);
+check('PUT /me/farm rejects huge bodies -> 413', (await call('PUT', '/me/farm', { token: alice, body: JSON.stringify({ version: 1, junk: 'x'.repeat(70 * 1024) }) })).status === 413);
+const live = await call('PUT', '/me/farm', { token: alice, body: JSON.stringify({ version: 1, playerName: 'Alice', day: 3, soil: { '9,17': { watered: true }, '10,17': { watered: false, crop: { id: 'onion', days: 0 } } }, inventory: ['secret'] }) });
+check('PUT /me/farm stores the live view -> 200', live.status === 200);
+const liveFarm = await json(await call('GET', `/farm/${meA.body.code}`));
+check('visitors see the live view when it is newer than the save', !!liveFarm.body.farm.soil['10,17']?.crop && !!liveFarm.body.updatedAt);
+check('the live view is stripped to farm fields too', !('inventory' in liveFarm.body.farm));
+await call('PUT', '/save', { token: alice, body: JSON.stringify({ ...aliceSave, shipped: 900, slimes: 12, soil: { '9,17': { watered: true } }, quest: { crashDay: 1, launchDay: 3, step: 9, flags: {} } }) });
+const afterSleep = await json(await call('GET', `/farm/${meA.body.code}`));
+check('a newer save (bedtime) wins over an older live view', !afterSleep.body.farm.soil['10,17']);
 const noFarm = await json(await call('GET', `/farm/${(await json(await call('GET', '/me', { token: carol }))).body.code}`));
 check('a code with no cloud save yet says so', noFarm.status === 404 && /hasn't saved their farm/.test(noFarm.body.error), noFarm.body.error);
 check('malformed code -> 404', (await call('GET', '/farm/hello')).status === 404);

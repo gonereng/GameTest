@@ -4,11 +4,11 @@ import { BED_SPAWN, getMap, type Facing, type Interactable, type MapDef, type Ma
 import { T, SOLID, TREE_TILES } from '../tiles';
 import { CROPS, ITEMS, RECIPES, SEASON_NAMES, countOf, plural, type ItemId } from '../items';
 import {
-  DAY_END, addItem, advanceDay, countItem, cropFrame, dateLabel, endVisit, formatTime, inSeason, isMature, loadSave, removeAt,
+  DAY_END, addItem, advanceDay, countItem, cropFrame, dateLabel, endVisit, farmView, formatTime, fromSaveData, inSeason, isMature, loadSave, removeAt,
   removeItem, runtime, save, seasonOf, soilKey, startVisit, state, yearOf,
 } from '../state';
 import {
-  claimGift, cloudEnabled, currentUser, downloadSave, fetchBoard, uploadSave, fetchFarm, fetchGifts, formatCode, getProfile, sendGift, setOnBoards,
+  claimGift, cloudEnabled, currentUser, downloadSave, fetchBoard, pushFarm, uploadSave, fetchFarm, fetchGifts, formatCode, getProfile, sendGift, setOnBoards,
   type BoardId,
 } from '../cloud';
 import { askText, cleanCode } from '../textPrompt';
@@ -27,6 +27,13 @@ import { Critter, CRITTER_LINES } from '../critters';
 import { CHARACTERS } from '../textures';
 
 type Body = Phaser.Physics.Arcade.Body;
+
+/** How often to check whether your farm changed (and send it for visitors), and how often a visit refreshes. */
+const FARM_PUSH_MS = 4000;
+const VISIT_REFRESH_MS = 10000;
+/** The farm view last sent, so unchanged farms aren't sent again. Kept across scene restarts. */
+let lastPushed = '';
+let pushing = false;
 
 /** Multiplies two tint colours, channel by channel. */
 function mix(a: number, b: number): number {
@@ -127,6 +134,7 @@ export class WorldScene extends Phaser.Scene {
     this.cropSprites = new Map();
     this.sprinklerSprites = new Map();
     this.treeImages = [];
+    this.visitStamp = '';
     this.lockedUntil = 0;
     this.invulnUntil = 0;
     this.step = undefined;
@@ -200,6 +208,14 @@ export class WorldScene extends Phaser.Scene {
 
     if (def.id === 'forest' && flag('deepOpen')) for (const p of DEEP_PATH) this.layer.putTileAt(T.DARK_GRASS, p.x, p.y);
     this.applySeason();
+
+    // Online: keep visitors' view of your farm up to date, or keep a visit up to date with its owner's farm.
+    if (cloudEnabled) {
+      this.time.addEvent({ delay: runtime.visit ? VISIT_REFRESH_MS : FARM_PUSH_MS, loop: true, callback: () => {
+        if (runtime.visit) void this.refreshVisit();
+        else void this.pushFarmIfChanged();
+      } });
+    }
 
     ui.location(def.name);
     if (this.args.intro) this.time.delayedCall(500, () => this.intro());
@@ -1137,6 +1153,49 @@ export class WorldScene extends Phaser.Scene {
     this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
       this.scene.restart({ map: 'farm', spawn: { x: 6, y: 7 }, facing: 'down', wake: `Welcome to ${runtime.visit!.name}'s farm! Look around as much as you like. Press Esc to go home.` });
     });
+  }
+
+  /** Sends the farm for visitors when it has changed since the last send (signed-in players only). */
+  private async pushFarmIfChanged(): Promise<void> {
+    if (pushing || runtime.visit || !currentUser()) return;
+    const view = farmView();
+    const sig = JSON.stringify(view);
+    if (sig === lastPushed) return;
+    pushing = true;
+    try {
+      if ((await pushFarm(view)).ok) lastPushed = sig;
+    } finally {
+      pushing = false;
+    }
+  }
+
+  /** While visiting: fetch the owner's farm again and redraw anything that changed, without leaving. */
+  private visitStamp = '';
+  private async refreshVisit(): Promise<void> {
+    const visit = runtime.visit;
+    if (!visit) return;
+    const r = await fetchFarm(visit.code);
+    if (!r.ok || runtime.visit !== visit || r.data.updatedAt === this.visitStamp) return;
+    this.visitStamp = r.data.updatedAt;
+    const v = fromSaveData({ ...r.data.farm, version: 1 });
+    if (!v) return;
+    const before = Object.keys(state.soil);
+    Object.assign(state, { soil: v.soil, sprinklers: v.sprinklers, day: v.day, weather: v.weather });
+    // Soil that went away goes back to the map's own tile; everything else is redrawn from the new data.
+    for (const key of before) {
+      if (state.soil[key]) continue;
+      const [x, y] = key.split(',').map(Number);
+      this.layer.putTileAt(this.def.tiles[y][x], x, y);
+      this.refreshCrop(x, y);
+    }
+    for (const [key, soil] of Object.entries(state.soil)) {
+      const [x, y] = key.split(',').map(Number);
+      this.layer.putTileAt(soil.watered ? T.SOIL_WET : T.SOIL, x, y);
+      this.refreshCrop(x, y);
+    }
+    for (const img of this.sprinklerSprites.values()) img.destroy();
+    this.sprinklerSprites.clear();
+    for (const key of state.sprinklers) this.addSprinklerSprite(key);
   }
 
   private goHome(): void {

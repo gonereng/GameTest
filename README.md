@@ -88,7 +88,7 @@ Game (GitHub Pages) --sign in--> Neon Auth (managed accounts)
 - `functions/saves/`: the Function (Hono + `pg` + `jose`). It checks the token against Neon Auth's keys and
   only ever reads or writes the row for that token's user. `saves.test.mts` covers it end to end.
 - `migrations/` + `npm run db:migrate`: the database schema, applied once each. `002_social.sql` adds
-  `profiles` (farm codes, leaderboard opt-in) and `gifts` (the mailbox).
+  `profiles` (farm codes, leaderboard opt-in) and `gifts` (the mailbox); `003_live_farm.sql` adds the live farm view.
 - `src/cloud.ts`, `src/accountPrompt.ts`: sign-in, sign-up and save upload/download in the game.
 - Without `VITE_NEON_AUTH_URL` and `VITE_SAVES_URL` at build time, accounts are hidden and the game
   saves on the device only. Saves always go to the device first, so a failed upload loses nothing.
@@ -98,7 +98,9 @@ Game (GitHub Pages) --sign in--> Neon Auth (managed accounts)
 - **Farm code:** every account gets a code like `ABCD-EFGH`. Share it with friends.
 - **Visiting:** type a friend's code to walk around their farm: their soil, crops, sprinklers and story, with your
   own bag. It's look-don't-touch, nothing is saved, and Esc takes you home. The server only sends the farm part
-  of the save (no bag, gold or friendships).
+  of the save (no bag, gold or friendships). While you play, your game sends a small live view of your farm a few
+  seconds after it changes (`PUT /me/farm`, separate from your save), and a visit refreshes every 10 seconds, so
+  visitors see crops as you plant them. Animals wander on each screen independently.
 - **Leaderboards:** most gold earned, most slimes defeated, and fastest moon rescue. Opt-in (off by default);
   you're listed by your farmer name, and scores update when you sleep.
 - **Gifts:** hold an item, choose *Send a gift*, enter a code and how many (up to 10). It arrives in their mailbox

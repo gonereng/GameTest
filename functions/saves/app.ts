@@ -36,6 +36,9 @@ export function normalizeCode(raw: string): string | null {
 
 /** The parts of a save a visitor needs to draw someone's farm. Nothing else leaves the server. */
 const FARM_FIELDS = ['version', 'playerName', 'day', 'soil', 'sprinklers', 'weather', 'quest', 'shipped', 'slimes'];
+const farmPart = (data: Record<string, unknown>) => Object.fromEntries(FARM_FIELDS.filter(k => k in data).map(k => [k, data[k]]));
+/** A farm view is much smaller than a whole save. */
+export const MAX_FARM_BYTES = 64 * 1024;
 
 /** Leaderboards. Values come from players' saves; only numbers count, so a malformed save can't break the query. */
 const num = (path: string) => `CASE WHEN jsonb_typeof(s.data #> '{${path}}') = 'number' THEN (s.data #>> '{${path}}')::numeric END`;
@@ -58,7 +61,8 @@ type Env = { Variables: { userId: string } };
  *   PUT    /save                -> body is the save object; stores it, returns { updatedAt }
  *   DELETE /save                -> removes it
  *   GET    /me, PUT /me         -> your share code and leaderboard opt-in
- *   GET    /farm/:code          -> the farm part of a save, for visiting
+ *   GET    /farm/:code          -> the farm part of a save (or the newer live view), for visiting
+ *   PUT    /me/farm             -> the live view of your farm, sent while you play
  *   GET    /leaderboard/:board  -> top 10 opted-in players (shipped, slimes, moon)
  *   POST   /gifts               -> send a gift to a share code
  *   GET    /gifts               -> gifts waiting for you
@@ -86,6 +90,7 @@ export function createApp(pool: Pool, verify: VerifyToken) {
   };
   app.use('/save', signedIn);
   app.use('/me', signedIn);
+  app.use('/me/*', signedIn);
   app.use('/gifts', signedIn);
   app.use('/gifts/*', signedIn);
 
@@ -155,16 +160,36 @@ export function createApp(pool: Pool, verify: VerifyToken) {
   app.get('/farm/:code', async c => {
     const code = normalizeCode(c.req.param('code'));
     if (!code) return c.json({ error: 'No farm with that code' }, 404);
-    const { rows } = await pool.query<{ data: Record<string, unknown> | null }>(
-      'SELECT s.data FROM profiles p LEFT JOIN saves s ON s.user_id = p.user_id WHERE p.share_code = $1', [code]);
+    const { rows } = await pool.query<{ data: Record<string, unknown> | null; saved: Date | null; live: Record<string, unknown> | null; live_at: Date | null }>(
+      `SELECT s.data, s.updated_at AS saved, p.live_farm AS live, p.live_at
+         FROM profiles p LEFT JOIN saves s ON s.user_id = p.user_id WHERE p.share_code = $1`, [code]);
     if (!rows.length) return c.json({ error: 'No farm with that code' }, 404);
-    // The code is real, but that player hasn't put a farm in the cloud yet (it uploads when they sleep).
-    if (!rows[0].data) {
+    const r = rows[0];
+    // Whichever is newer: the live view (sent while they play) or the save (made at bedtime).
+    const useLive = !!r.live && !!r.live_at && (!r.saved || r.live_at > r.saved);
+    const data = useLive ? r.live : r.data;
+    const at = useLive ? r.live_at : r.saved;
+    // The code is real, but that player hasn't put a farm in the cloud yet.
+    if (!data || !at) {
       return c.json({ error: "That farmer hasn't saved their farm to the cloud yet. They need to sleep in their bed once while signed in." }, 404);
     }
-    const data = rows[0].data;
-    const farm = Object.fromEntries(FARM_FIELDS.filter(k => k in data).map(k => [k, data[k]]));
-    return c.json({ farm });
+    return c.json({ farm: farmPart(data), updatedAt: at.toISOString() });
+  });
+
+  /** PUT /me/farm { ...farm } -> { updatedAt }. The live view of your farm, for visitors. */
+  app.put('/me/farm', async c => {
+    const text = await c.req.text();
+    if (text.length > MAX_FARM_BYTES) return c.json({ error: 'Farm is too large' }, 413);
+    let body: unknown;
+    try { body = JSON.parse(text); } catch { return c.json({ error: 'Farm must be JSON' }, 400); }
+    if (!body || typeof body !== 'object' || Array.isArray(body) || (body as { version?: unknown }).version !== 1) {
+      return c.json({ error: 'Not a Hollowbrook farm' }, 400);
+    }
+    await profile(c.get('userId'));
+    const { rows } = await pool.query<{ live_at: Date }>(
+      'UPDATE profiles SET live_farm = $2, live_at = now() WHERE user_id = $1 RETURNING live_at',
+      [c.get('userId'), JSON.stringify(farmPart(body as Record<string, unknown>))]);
+    return c.json({ updatedAt: rows[0].live_at.toISOString() });
   });
 
   // ------------------------------------------------------------------ leaderboards (public)

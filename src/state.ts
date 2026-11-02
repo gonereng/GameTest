@@ -140,6 +140,12 @@ export function startVisit(farm: Partial<GameState>, code: string): boolean {
   return true;
 }
 
+/** What visitors see of your farm: the same fields the server keeps from a save. */
+export function farmView(): Partial<GameState> {
+  const { version, playerName, day, soil, sprinklers, weather, quest, shipped, slimes } = state;
+  return { version, playerName, day, soil, sprinklers, weather, quest, shipped, slimes };
+}
+
 /** Back to your own game, exactly as you left it. */
 export function endVisit(): void {
   if (home) state = home;
