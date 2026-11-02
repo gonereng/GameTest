@@ -4,8 +4,9 @@ import { BED_SPAWN, getMap, type Facing, type Interactable, type MapDef, type Ma
 import { T, SOLID, TREE_TILES } from '../tiles';
 import { CROPS, ITEMS, type ItemId } from '../items';
 import {
-  DAY_END, HOTBAR_SIZE, addItem, advanceDay, cropFrame, formatTime, isMature, removeAt, runtime, save, soilKey, state,
+  DAY_END, addItem, advanceDay, cropFrame, formatTime, isMature, removeAt, runtime, save, soilKey, state,
 } from '../state';
+import { isMuted, setMuted, setMusicMood, sfx } from '../audio';
 import { modal, ui } from '../bus';
 import { Slime } from '../slime';
 import { mulberry32 } from '../rng';
@@ -34,8 +35,8 @@ const CONTROLS = [
   'Move: WASD or arrow keys.',
   'Space (or J): use the selected item. Facing a crop, sign or person, it interacts instead.',
   'E (or K): talk, read, harvest, open things.',
-  '1-0, Q or the mouse wheel: pick an item from the hotbar.',
-  'Esc: menu. Sleep in your bed to end the day and save.',
+  '1-0 (and - = with the Backpack), Q or the mouse wheel: pick an item from the hotbar.',
+  'Esc: menu. M: sound on or off. Sleep in your bed to end the day and save.',
 ];
 
 interface WorldArgs {
@@ -59,7 +60,7 @@ interface Pickup {
   forageKey?: string;
 }
 
-type KeyName = 'up' | 'down' | 'left' | 'right' | 'w' | 'a' | 's' | 'd' | 'space' | 'j' | 'e' | 'k' | 'q' | 'esc';
+type KeyName = 'up' | 'down' | 'left' | 'right' | 'w' | 'a' | 's' | 'd' | 'space' | 'j' | 'e' | 'k' | 'q' | 'm' | 'esc';
 
 export class WorldScene extends Phaser.Scene {
   private args: WorldArgs = {};
@@ -76,6 +77,7 @@ export class WorldScene extends Phaser.Scene {
   private currentSkin: 'farmer' | 'suit' = 'farmer';
   private pickups: Pickup[] = [];
   private cropSprites = new Map<string, Phaser.GameObjects.Image>();
+  private sprinklerSprites = new Map<string, Phaser.GameObjects.Image>();
   private invulnUntil = 0;
   /** The tile the player stands on, or is walking away from. */
   private grid: Point = { x: 0, y: 0 };
@@ -100,6 +102,7 @@ export class WorldScene extends Phaser.Scene {
     this.critters = [];
     this.pickups = [];
     this.cropSprites = new Map();
+    this.sprinklerSprites = new Map();
     this.lockedUntil = 0;
     this.invulnUntil = 0;
     this.step = undefined;
@@ -158,12 +161,12 @@ export class WorldScene extends Phaser.Scene {
     const kb = this.input.keyboard!;
     this.keys = kb.addKeys({
       up: 'UP', down: 'DOWN', left: 'LEFT', right: 'RIGHT', w: 'W', a: 'A', s: 'S', d: 'D',
-      space: 'SPACE', j: 'J', e: 'E', k: 'K', q: 'Q', esc: 'ESC',
+      space: 'SPACE', j: 'J', e: 'E', k: 'K', q: 'Q', m: 'M', esc: 'ESC',
     }) as Record<KeyName, Phaser.Input.Keyboard.Key>;
     kb.on('keydown', (e: KeyboardEvent) => {
       if (modal.open) return;
-      const n = '1234567890'.indexOf(e.key);
-      if (n >= 0) state.selected = n;
+      const n = '1234567890-='.indexOf(e.key);
+      if (n >= 0 && n < state.inventory.length) state.selected = n;
     });
     this.input.on('wheel', (_p: unknown, _o: unknown, _dx: number, dy: number) => {
       if (!modal.open) this.cycleItem(dy > 0 ? 1 : -1);
@@ -174,6 +177,7 @@ export class WorldScene extends Phaser.Scene {
     else if (this.args.wake) this.time.delayedCall(500, () => ui.dialogue({ lines: [this.args.wake!] }));
     if (this.args.newDay) {
       this.time.delayedCall(300, () => ui.toast(`Day ${state.day} - Good morning!`));
+      if (state.weather === 'rain') this.time.delayedCall(700, () => ui.toast("It's raining! Your crops are watered today."));
       this.story.onNewDay();
     }
   }
@@ -188,6 +192,13 @@ export class WorldScene extends Phaser.Scene {
       this.layer.putTileAt(soil.watered ? T.SOIL_WET : T.SOIL, x, y);
       this.refreshCrop(x, y);
     }
+    for (const key of state.sprinklers) this.addSprinklerSprite(key);
+  }
+
+  private addSprinklerSprite(key: string): void {
+    const [x, y] = key.split(',').map(Number);
+    const img = this.add.image((x + 0.5) * TILE, (y + 0.5) * TILE - 1, 'items', 'sprinkler').setDepth((y + 1) * TILE - 2);
+    this.sprinklerSprites.set(key, img);
   }
 
   private spawnNpcs(): void {
@@ -276,7 +287,7 @@ export class WorldScene extends Phaser.Scene {
       for (let tries = 0; tries < 12; tries++) {
         const x = c.x + Math.floor(rnd() * 5) - 2, y = c.y + Math.floor(rnd() * 5) - 2;
         const tile = this.def.tiles[y]?.[x];
-        if (tile === undefined || solid.has(tile) || this.def.farmable && state.soil[soilKey(x, y)]) continue;
+        if (tile === undefined || solid.has(tile) || this.def.farmable && (state.soil[soilKey(x, y)] || this.hasSprinkler(x, y))) continue;
         this.addPickup((x + 0.3 + rnd() * 0.4) * TILE, (y + 0.5) * TILE, golden ? 'golden_egg' : 'egg', key, false);
         return;
       }
@@ -311,6 +322,8 @@ export class WorldScene extends Phaser.Scene {
     const pressTalk = Phaser.Input.Keyboard.JustDown(k.e) || Phaser.Input.Keyboard.JustDown(k.k) || consumeTouch('talk');
     const pressNext = Phaser.Input.Keyboard.JustDown(k.q);
     const pressMenu = Phaser.Input.Keyboard.JustDown(k.esc) || consumeTouch('menu');
+    if (Phaser.Input.Keyboard.JustDown(k.m) && !modal.open) this.toggleSound();
+    setMusicMood({ night: state.minutes >= 20 * 60, rain: state.weather === 'rain', indoor: this.def.indoor });
 
     if (this.transitioning) return;
 
@@ -383,6 +396,7 @@ export class WorldScene extends Phaser.Scene {
     if (x < 0 || y < 0 || x >= this.def.w || y >= this.def.h) return false;
     const tile = this.layer.getTileAt(x, y);
     if (!tile || tile.collides) return false;
+    if (this.hasSprinkler(x, y)) return false;
     return !this.npcs.some(n => Math.floor(n.sprite.x / TILE) === x && Math.floor((n.sprite.y + 4) / TILE) === y);
   }
 
@@ -523,15 +537,27 @@ export class WorldScene extends Phaser.Scene {
         const base = (y + 1) * TILE - 1;
         this.add.image((x + 0.5) * TILE, base + 1, 'tf_maple', big ? 'big' : 'medium').setOrigin(0.5, 1).setDepth(base);
       }
-    for (const c of this.def.critters) {
+    for (const [i, c] of this.def.critters.entries()) {
       const critter = new Critter(this, (c.x + 0.5) * TILE, (c.y + 0.5) * TILE, c.kind);
+      critter.slot = i;
       this.physics.add.collider(critter, this.layer);
       this.critters.push(critter);
     }
   }
 
   private cycleItem(step: number): void {
-    state.selected = (state.selected + step + HOTBAR_SIZE) % HOTBAR_SIZE;
+    const n = state.inventory.length;
+    state.selected = (state.selected + step + n) % n;
+    sfx('select');
+  }
+
+  private hasSprinkler(x: number, y: number): boolean {
+    return this.def.farmable && state.sprinklers.includes(soilKey(x, y));
+  }
+
+  private toggleSound(): void {
+    setMuted(!isMuted());
+    ui.toast(isMuted() ? 'Sound off. (M to turn it back on)' : 'Sound on.');
   }
 
   private travel(w: Warp): void {
@@ -607,6 +633,7 @@ export class WorldScene extends Phaser.Scene {
     }
     const critter = this.critters.find(c => Phaser.Math.Distance.Between(t.px, t.py, c.x, (c.body as Body).center.y) < 14);
     if (critter) {
+      if (this.milk(critter)) return true;
       const lines = CRITTER_LINES[critter.kind];
       ui.dialogue({ lines: lines[critter.talks++ % lines.length] });
       return true;
@@ -614,11 +641,69 @@ export class WorldScene extends Phaser.Scene {
     if (this.story.interactAt(t.tx, t.ty, fromUse)) return true;
     const it = this.def.interact.find(i => i.x === t.tx && i.y === t.ty);
     if (it) { this.useInteractable(it); return true; }
+    if (this.hasSprinkler(t.tx, t.ty)) { this.offerPickUpSprinkler(t.tx, t.ty); return true; }
     const soil = this.def.farmable ? state.soil[soilKey(t.tx, t.ty)] : undefined;
     if (soil?.crop && isMature(soil)) { this.harvest(t.tx, t.ty); return true; }
     const p = this.pickups.find(p => Phaser.Math.Distance.Between(t.px, t.py, p.img.x, p.img.y) < 10);
     if (p) { this.collect(p); return true; }
     return false;
+  }
+
+  /** Your cow on the farm gives milk once a day. Returns false if there's no milk right now. */
+  private milk(c: Critter): boolean {
+    if (c.kind !== 'cow' || !this.def.farmable) return false;
+    const key = `milk:${this.def.id}:${c.slot}`;
+    if (state.forage[key]) {
+      if (c.talks === 0) { c.talks++; ui.dialogue({ lines: ['Moo.', "(You've already had today's milk. Come back tomorrow.)"] }); return true; }
+      return false;
+    }
+    if (!addItem('milk', 1)) { ui.toast('Your bag is full!'); return true; }
+    state.forage[key] = true;
+    sfx('milk');
+    this.popIcon('milk', c.x, c.y - 8);
+    ui.toast('+1 Milk');
+    return true;
+  }
+
+  private placeSprinkler(slot: number): void {
+    const t = this.facingTarget();
+    if (!this.def.farmable) { ui.toast('Sprinklers go on your farm.'); return; }
+    const tile = this.layer.getTileAt(t.tx, t.ty);
+    const key = soilKey(t.tx, t.ty);
+    const blocked = this.npcs.some(n => Math.floor(n.sprite.x / TILE) === t.tx && Math.floor((n.sprite.y + 4) / TILE) === t.ty);
+    if (!tile || (tile.index !== T.GRASS && tile.index !== T.FLOWER) || state.soil[key] || this.hasSprinkler(t.tx, t.ty) || blocked) {
+      sfx('error');
+      ui.toast('Place the sprinkler on open grass, next to the soil you want watered.');
+      return;
+    }
+    state.sprinklers.push(key);
+    removeAt(slot, 1);
+    this.addSprinklerSprite(key);
+    sfx('place');
+    this.burst((t.tx + 0.5) * TILE, (t.ty + 0.5) * TILE, 0x7fb4f2, 8);
+    this.lockedUntil = this.time.now + 150;
+    ui.toast('Sprinkler placed. It waters the 8 tiles around it every morning.');
+  }
+
+  private offerPickUpSprinkler(x: number, y: number): void {
+    ui.dialogue({
+      lines: ['A sprinkler. It waters the 8 tiles around it every morning.'],
+      choices: [
+        {
+          label: 'Pick it up',
+          action: () => {
+            const key = soilKey(x, y);
+            if (!state.sprinklers.includes(key)) return;
+            if (!addItem('sprinkler', 1)) { ui.toast('Your bag is full!'); return; }
+            state.sprinklers = state.sprinklers.filter(k => k !== key);
+            this.sprinklerSprites.get(key)?.destroy();
+            this.sprinklerSprites.delete(key);
+            sfx('pickup');
+          },
+        },
+        { label: 'Leave it' },
+      ],
+    });
   }
 
   private talk(n: Npc): void {
@@ -687,6 +772,7 @@ export class WorldScene extends Phaser.Scene {
     else if (stack.id === 'sword') this.swingSword();
     else if (stack.id === 'suit') ui.toast("You're wearing the Slime Suit. Slimes think you're one of them.");
     else if (item.kind === 'seed') this.plant(slot);
+    else if (item.kind === 'placeable') this.placeSprinkler(slot);
     else if (item.energy || item.heal) this.offerEat(slot);
   }
 
@@ -707,8 +793,11 @@ export class WorldScene extends Phaser.Scene {
     const key = soilKey(t.tx, t.ty);
     if (!tile || (tile.index !== T.GRASS && tile.index !== T.FLOWER) || state.soil[key]) return;
     if (!this.spend(2)) return;
-    state.soil[key] = { watered: false };
-    this.layer.putTileAt(T.SOIL, t.tx, t.ty);
+    sfx('hoe');
+    // On a rainy day freshly tilled soil is already wet.
+    const wet = state.weather === 'rain';
+    state.soil[key] = { watered: wet };
+    this.layer.putTileAt(wet ? T.SOIL_WET : T.SOIL, t.tx, t.ty);
     this.burst((t.tx + 0.5) * TILE, (t.ty + 0.5) * TILE, 0x7a5232, 6);
   }
 
@@ -718,6 +807,7 @@ export class WorldScene extends Phaser.Scene {
     const soil = this.def.farmable ? state.soil[soilKey(t.tx, t.ty)] : undefined;
     if (!soil || soil.watered) return;
     if (!this.spend(1)) return;
+    sfx('water');
     soil.watered = true;
     this.layer.putTileAt(T.SOIL_WET, t.tx, t.ty);
     this.burst((t.tx + 0.5) * TILE, (t.ty + 0.5) * TILE, 0x7fb4f2, 8);
@@ -730,6 +820,7 @@ export class WorldScene extends Phaser.Scene {
     if (soil.crop) return;
     soil.crop = { id: ITEMS[state.inventory[slot]!.id].crop!, days: 0 };
     removeAt(slot, 1);
+    sfx('plant');
     this.refreshCrop(t.tx, t.ty);
     this.lockedUntil = this.time.now + 150;
   }
@@ -755,6 +846,7 @@ export class WorldScene extends Phaser.Scene {
     const produce = CROPS[soil.crop!.id].produce;
     if (!addItem(produce, 1)) { ui.toast('Your bag is full!'); return; }
     soil.crop = undefined;
+    sfx('harvest');
     this.refreshCrop(x, y);
     this.popIcon(produce, (x + 0.5) * TILE, (y + 0.5) * TILE);
     ui.toast(`+1 ${ITEMS[produce].name}`);
@@ -773,6 +865,7 @@ export class WorldScene extends Phaser.Scene {
             state.energy = Math.min(state.maxEnergy, state.energy + (item.energy ?? 0));
             state.hp = Math.min(state.maxHp, state.hp + (item.heal ?? 0));
             removeAt(slot, 1);
+            sfx('pickup');
             ui.toast(`Yum! ${gains}`);
           },
         },
@@ -790,6 +883,7 @@ export class WorldScene extends Phaser.Scene {
         { label: 'Resume' },
         { label: 'Wait 1 hour', action: () => this.skipTime(60, false) },
         { label: 'Controls', action: () => ui.dialogue({ speaker: 'Controls', lines: CONTROLS }) },
+        { label: isMuted() ? 'Sound: off (turn on)' : 'Sound: on (turn off)', action: () => this.toggleSound() },
         {
           label: 'Quit to title (progress since you last slept is lost)',
           action: () => { this.scene.stop('UI'); this.scene.start('Title'); },
@@ -810,6 +904,7 @@ export class WorldScene extends Phaser.Scene {
     // The swing covers a half circle in front of the player, centred on the middle of their body.
     const ox = b.center.x, oy = b.center.y - 4;
     this.slashArc(ox, oy, SLASH_ANGLE[this.facing]);
+    sfx('swing');
 
     const hits = (r: Phaser.Geom.Rectangle): boolean => {
       // Close enough: the nearest point of the target is within reach.
@@ -830,6 +925,7 @@ export class WorldScene extends Phaser.Scene {
       if (!hits(new Phaser.Geom.Rectangle(sb.x, sb.y, sb.width, sb.height))) continue;
       const k = away(sb.center.x, sb.center.y);
       if (s.damage(k.x, k.y, now)) this.killSlime(s);
+      else sfx('slimeHit');
     }
   }
 
@@ -861,6 +957,7 @@ export class WorldScene extends Phaser.Scene {
 
   private killSlime(s: Slime): void {
     state.slimes++;
+    sfx('slimeDie');
     this.burst(s.x, s.y + 2, 0x6ad06a, 12);
     if (Math.random() < 0.8) {
       // Drop it in the middle of a walkable tile, so you can step onto it.
@@ -877,6 +974,7 @@ export class WorldScene extends Phaser.Scene {
     if (modal.open || this.transitioning || now < this.invulnUntil) return;
     if (s instanceof Slime && (s.dead || (wearingSuit() && !s.angry))) return;
     state.hp--;
+    sfx('hurt');
     this.invulnUntil = now + 1000;
     const dx = this.player.x - s.x, dy = this.player.y - s.y;
     // Knocked back one tile, away from whatever hit you, if there's room.
@@ -909,6 +1007,7 @@ export class WorldScene extends Phaser.Scene {
     if (!addItem(p.id, 1)) { ui.toast('Your bag is full!'); return; }
     this.pickups.splice(this.pickups.indexOf(p), 1);
     if (p.forageKey) state.forage[p.forageKey] = true;
+    sfx('pickup');
     this.tweens.killTweensOf(p.img);
     this.popIcon(p.id, p.img.x, p.img.y);
     p.img.destroy();

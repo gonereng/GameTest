@@ -20,8 +20,9 @@ npm run build      # production build in dist/ (static files, works on GitHub Pa
 | WASD / Arrows | Move one tile at a time (hold to keep walking, tap to just turn) |
 | Space (or J) | Use the selected item. When facing a person, sign or ripe crop, it interacts instead |
 | E (or K) | Talk, read, harvest, open |
-| 1-0, Q, mouse wheel | Pick a hotbar slot |
+| 1-0 (and - = with the Backpack), Q, mouse wheel | Pick a hotbar slot |
 | Esc | Menu |
+| M | Sound on or off (also in the menu) |
 
 The game switches to fullscreen on your first tap, click or key press (browsers don't allow it
 any sooner). Press Esc or the fullscreen button to leave it. On iPhone, where websites can't go
@@ -37,10 +38,16 @@ and fullscreen. Tap to advance dialogue. In the shop, tap an item twice to buy i
   Strawberries (3 days), Onions (4), Potatoes (5), Leeks (6), Moonmelons (8).
 - **Day cycle:** 6 AM to 2 AM (about 14 real minutes), with nightfall. Energy is spent by tools.
   Sleep in your bed to end the day and save. Staying up past 2 AM makes you pass out.
+- **Animals:** chickens lay eggs in the grass most mornings. Talk to the cow on your farm once a day for Milk.
+- **Weather:** once the moon is back in the sky, about one day in five is rainy. Rain waters every crop on the farm.
+- **Sprinklers:** buy them from Bram (120g + 2 Slime Gel) and place them on farm grass. Each waters the 8 tiles
+  around it every morning. Talk to one to pick it back up.
 - **Combat:** slimes roam Mossy Woods. Swing the sword to defeat them and collect Slime Gel.
   Getting knocked out sends you home and costs 10% of your gold.
-- **Economy:** sell crops, forage and gel in the shipping bin. Buy seeds, bread and Heart Charms
-  (+1 max heart) at Bram's shop in town.
+- **Economy:** sell crops, milk, eggs, forage and gel in the shipping bin. Buy seeds, bread, sprinklers,
+  Heart Charms (+1 max heart) and a Backpack (2 more hotbar slots) at Bram's shop in town.
+- **Sound:** effects and a gentle music loop, synthesized in the browser (`src/audio.ts`, no audio files).
+  The music drops an octave at night. Your on/off choice is remembered on the device.
 - **Places:** farm, house, Hollowbrook town (Mayor Orla, Pip), Bram's shop, Mossy Woods.
 - **Saving:** automatic on sleep, stored in the browser's localStorage.
 
@@ -98,6 +105,7 @@ src/
   textures.ts        All pixel art, drawn with canvas at startup
   slime.ts           Slime enemy
   critters.ts        Farm animals
+  audio.ts           Sound effects and music (Web Audio)
   quest.ts           The story: steps, dialogue, puzzles, Gerald, the Turnipult, the finale
   boss.ts            Lord Gloopington III
   bus.ts             Events between the world and the UI

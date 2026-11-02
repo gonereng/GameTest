@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { HOTBAR_SIZE, state } from './state';
+import { state } from './state';
 import { modal } from './bus';
 import { toggleFullscreen } from './fullscreen';
 
@@ -158,7 +158,7 @@ export class TouchControls {
     const hb = this.hotbar();
     if (p.y >= hb.y && p.y <= hb.y + hb.slot && p.x >= hb.x) {
       const i = Math.floor((p.x - hb.x) / (hb.slot + hb.gap));
-      if (i >= 0 && i < HOTBAR_SIZE) { state.selected = i; return; }
+      if (i >= 0 && i < state.inventory.length) { state.selected = i; return; }
     }
     if (this.stickId === null && p.x < this.size.w * 0.45 && p.y > this.size.h * 0.3) {
       this.stickId = p.id;

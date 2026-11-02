@@ -5,6 +5,7 @@ import { TitleScene } from './scenes/TitleScene';
 import { WorldScene } from './scenes/WorldScene';
 import { UIScene } from './scenes/UIScene';
 import { fullscreenOnFirstInput } from './fullscreen';
+import { initAudio } from './audio';
 import { currentUser, uploadSave } from './cloud';
 import { ui } from './bus';
 
@@ -33,6 +34,7 @@ const game = new Phaser.Game({
 });
 
 fullscreenOnFirstInput();
+initAudio();
 
 // Every save (sleeping) also goes to the player's account when signed in. The copy on this device is
 // always written first, so nothing is lost if the upload fails.
