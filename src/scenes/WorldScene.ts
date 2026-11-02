@@ -2,13 +2,18 @@ import Phaser from 'phaser';
 import { TILE, ZOOM } from '../config';
 import { BED_SPAWN, getMap, type Facing, type Interactable, type MapDef, type MapId, type NpcDef, type Point, type Warp } from '../maps';
 import { T, SOLID, TREE_TILES } from '../tiles';
-import { CROPS, ITEMS, type ItemId } from '../items';
+import { CROPS, ITEMS, RECIPES, SEASON_NAMES, type ItemId } from '../items';
 import {
-  DAY_END, addItem, advanceDay, cropFrame, formatTime, isMature, removeAt, runtime, save, soilKey, state,
+  DAY_END, addItem, advanceDay, countItem, cropFrame, dateLabel, formatTime, inSeason, isMature, removeAt,
+  removeItem, runtime, save, seasonOf, soilKey, state, yearOf,
 } from '../state';
+import { DEEP_PATH, DEEP_UNLOCK_SLIMES } from '../maps';
+import {
+  FRIEND_NAMES, canGift, chatted, claimRewards, friendsSummary, giftedToday, giveGift, heartBar, isFriend, type FriendId,
+} from '../friends';
 import { isMuted, setMuted, setMusicMood, sfx } from '../audio';
 import { modal, ui } from '../bus';
-import { Slime } from '../slime';
+import { Slime, type SlimeTier } from '../slime';
 import { mulberry32 } from '../rng';
 import { Boss } from '../boss';
 import { Story, flag, goalText, wearingSuit } from '../quest';
@@ -18,6 +23,12 @@ import { CHARACTERS } from '../textures';
 
 type Body = Phaser.Physics.Arcade.Body;
 
+/** Multiplies two tint colours, channel by channel. */
+function mix(a: number, b: number): number {
+  const ch = (shift: number) => Math.round((((a >> shift) & 255) * ((b >> shift) & 255)) / 255) << shift;
+  return ch(16) | ch(8) | ch(0);
+}
+
 const DIR: Record<Facing, Point> = {
   down: { x: 0, y: 1 }, up: { x: 0, y: -1 }, left: { x: -1, y: 0 }, right: { x: 1, y: 0 },
 };
@@ -26,6 +37,12 @@ const SLASH_ANGLE: Record<Facing, number> = { right: 0, down: 90, left: 180, up:
 const SWORD_REACH = 28;
 /** Time to walk one tile, in ms (80 pixels per second). */
 const STEP_MS = 200;
+/** With the Fast buff (from an Omelette). */
+const FAST_STEP_MS = 150;
+/** How the outdoors is tinted in each season: [ground, trees]. */
+const SEASON_TINT: [number, number][] = [[0xffffff, 0xffffff], [0xffffff, 0xffffff], [0xffd890, 0xffa050], [0xd8e4f4, 0xc8d8f0]];
+/** The Deep Woods are gloomier than the rest of the valley, whatever the season. */
+const DEEP_GLOOM = 0xa8b8b0;
 /** A quick tap shorter than this just turns the player to face that way. */
 const TURN_MS = 90;
 /** Real milliseconds per in-game minute. A full day (6 AM to 2 AM) is about 14 minutes. */
@@ -77,6 +94,7 @@ export class WorldScene extends Phaser.Scene {
   private currentSkin: 'farmer' | 'suit' = 'farmer';
   private pickups: Pickup[] = [];
   private cropSprites = new Map<string, Phaser.GameObjects.Image>();
+  private treeImages: Phaser.GameObjects.Image[] = [];
   private sprinklerSprites = new Map<string, Phaser.GameObjects.Image>();
   private invulnUntil = 0;
   /** The tile the player stands on, or is walking away from. */
@@ -103,6 +121,7 @@ export class WorldScene extends Phaser.Scene {
     this.pickups = [];
     this.cropSprites = new Map();
     this.sprinklerSprites = new Map();
+    this.treeImages = [];
     this.lockedUntil = 0;
     this.invulnUntil = 0;
     this.step = undefined;
@@ -172,11 +191,15 @@ export class WorldScene extends Phaser.Scene {
       if (!modal.open) this.cycleItem(dy > 0 ? 1 : -1);
     });
 
+    if (def.id === 'forest' && flag('deepOpen')) for (const p of DEEP_PATH) this.layer.putTileAt(T.DARK_GRASS, p.x, p.y);
+    this.applySeason();
+
     ui.location(def.name);
     if (this.args.intro) this.time.delayedCall(500, () => this.intro());
     else if (this.args.wake) this.time.delayedCall(500, () => ui.dialogue({ lines: [this.args.wake!] }));
     if (this.args.newDay) {
-      this.time.delayedCall(300, () => ui.toast(`Day ${state.day} - Good morning!`));
+      this.time.delayedCall(300, () => ui.toast(`${dateLabel(state.day)} - Good morning!`));
+      this.morningNews();
       if (state.weather === 'rain') this.time.delayedCall(700, () => ui.toast("It's raining! Your crops are watered today."));
       this.story.onNewDay();
     }
@@ -185,6 +208,34 @@ export class WorldScene extends Phaser.Scene {
   // ------------------------------------------------------------------ setup
 
   private pbody(): Body { return this.player.body as Body; }
+
+  /** Things to tell the player when they wake up: a new season, withered crops, the Deep Woods opening. */
+  private morningNews(): void {
+    const news: string[] = [];
+    const dayOfSeason = (state.day - 1) % 28 + 1;
+    if (dayOfSeason === 1 && state.day > 1) {
+      const season = SEASON_NAMES[seasonOf(state.day)];
+      news.push(`${season} has arrived${seasonOf(state.day) === 0 ? ` - welcome to Year ${yearOf(state.day)}!` : '!'} Bram has new seeds in stock.`);
+      if (runtime.withered) news.push(`${runtime.withered} crop${runtime.withered > 1 ? 's' : ''} that can't grow in ${season} withered overnight.`);
+    }
+    if (!flag('deepOpen') && state.slimes >= DEEP_UNLOCK_SLIMES) {
+      state.quest.flags.deepOpen = true;
+      news.push(
+        'A note was slipped under your door:',
+        `"${DEEP_UNLOCK_SLIMES} slimes! The overgrown path on the west side of Mossy Woods has been cleared. The Deep Woods lie beyond. Tougher slimes, better loot. Do be careful. - Mayor Orla"`,
+      );
+    }
+    if (news.length) this.time.delayedCall(900, () => ui.dialogue({ lines: news }));
+  }
+
+  /** Outdoor maps take on the season's colours: warm in fall, frosty in winter. */
+  private applySeason(): void {
+    if (this.def.indoor) return;
+    let [ground, trees] = SEASON_TINT[seasonOf(state.day)];
+    if (this.def.tough) { ground = mix(ground, DEEP_GLOOM); trees = mix(trees, DEEP_GLOOM); }
+    this.layer.setTint(ground);
+    for (const img of this.treeImages) img.setTint(trees);
+  }
 
   private buildFarm(): void {
     for (const [key, soil] of Object.entries(state.soil)) {
@@ -244,12 +295,13 @@ export class WorldScene extends Phaser.Scene {
     const spots = this.def.open.filter(p => Math.abs(p.x - spawn.x) + Math.abs(p.y - spawn.y) > 9);
     for (let i = 0; i < this.def.slimes && spots.length; i++) {
       const p = spots.splice(Phaser.Math.Between(0, spots.length - 1), 1)[0];
-      this.addSlime((p.x + 0.5) * TILE, (p.y + 0.5) * TILE - 4);
+      const tier = this.def.tough ? (Math.random() < 0.3 ? 3 : 2) : 1;
+      this.addSlime((p.x + 0.5) * TILE, (p.y + 0.5) * TILE - 4, 'slime', tier);
     }
   }
 
-  addSlime(x: number, y: number, kind: 'slime' | 'gloop' = 'slime'): Slime {
-    const s = new Slime(this, x, y, kind);
+  addSlime(x: number, y: number, kind: 'slime' | 'gloop' = 'slime', tier: SlimeTier = 1): Slime {
+    const s = new Slime(this, x, y, kind, tier);
     this.slimes.push(s);
     return s;
   }
@@ -425,7 +477,7 @@ export class WorldScene extends Phaser.Scene {
     if (now >= this.turnUntil) this.tryStep(dir, 0);
   }
 
-  private tryStep(dir: Facing, elapsed: number, ms = STEP_MS): boolean {
+  private tryStep(dir: Facing, elapsed: number, ms = state.buffs.speed ? FAST_STEP_MS : STEP_MS): boolean {
     const tx = this.grid.x + DIR[dir].x, ty = this.grid.y + DIR[dir].y;
     if (!this.canEnter(tx, ty)) return false;
     this.step = { tx, ty, t: elapsed / ms, ms };
@@ -535,7 +587,7 @@ export class WorldScene extends Phaser.Scene {
         if (!TREE_TILES.includes(this.def.tiles[y][x])) continue;
         const big = ((x * 73856093) ^ (y * 19349663)) % 10 < 3;
         const base = (y + 1) * TILE - 1;
-        this.add.image((x + 0.5) * TILE, base + 1, 'tf_maple', big ? 'big' : 'medium').setOrigin(0.5, 1).setDepth(base);
+        this.treeImages.push(this.add.image((x + 0.5) * TILE, base + 1, 'tf_maple', big ? 'big' : 'medium').setOrigin(0.5, 1).setDepth(base));
       }
     for (const [i, c] of this.def.critters.entries()) {
       const critter = new Critter(this, (c.x + 0.5) * TILE, (c.y + 0.5) * TILE, c.kind);
@@ -627,6 +679,7 @@ export class WorldScene extends Phaser.Scene {
     const t = this.facingTarget();
     for (const n of this.npcs) {
       if (Phaser.Math.Distance.Between(t.px, t.py, n.sprite.x, n.sprite.y + 4) < 13) {
+        if (fromUse && isFriend(n.def.id) && this.offerGift(n.def.id)) return true;
         this.talk(n);
         return true;
       }
@@ -640,6 +693,7 @@ export class WorldScene extends Phaser.Scene {
     }
     if (this.story.interactAt(t.tx, t.ty, fromUse)) return true;
     const it = this.def.interact.find(i => i.x === t.tx && i.y === t.ty);
+    if (it && fromUse && it.kind === 'shop' && this.offerGift('bram')) return true;
     if (it) { this.useInteractable(it); return true; }
     if (this.hasSprinkler(t.tx, t.ty)) { this.offerPickUpSprinkler(t.tx, t.ty); return true; }
     const soil = this.def.farmable ? state.soil[soilKey(t.tx, t.ty)] : undefined;
@@ -720,7 +774,70 @@ export class WorldScene extends Phaser.Scene {
       n.talks++;
     }
     lines = lines.map(l => l.replace('{slimes}', String(state.slimes)).replace('{day}', String(state.day)));
+    if (isFriend(n.def.id)) {
+      chatted(n.def.id);
+      lines = [...lines, ...claimRewards(n.def.id)];
+    }
     ui.dialogue({ speaker: n.def.name, lines });
+  }
+
+  /** Using a held item on Orla, Pip or Bram's counter offers it as a gift. Returns false if there's nothing to give. */
+  private offerGift(id: FriendId): boolean {
+    const slot = state.selected;
+    const stack = state.inventory[slot];
+    if (!stack || !canGift(stack.id)) return false;
+    const name = FRIEND_NAMES[id];
+    if (giftedToday(id)) {
+      ui.dialogue({ speaker: name, lines: ["You've already given me something today. Come back tomorrow!"] });
+      return true;
+    }
+    const item = stack.id;
+    ui.dialogue({
+      lines: [`Give the ${ITEMS[item].name} to ${name}?`],
+      choices: [
+        {
+          label: `Give it (${heartBar(id)})`,
+          action: () => {
+            if (state.inventory[slot]?.id !== item) return;
+            removeAt(slot, 1);
+            const reply = giveGift(id, item);
+            sfx('pickup');
+            ui.dialogue({ speaker: name, lines: [reply, `(${name}  ${heartBar(id)})`, ...claimRewards(id)] });
+          },
+        },
+        { label: 'Keep it' },
+      ],
+    });
+    return true;
+  }
+
+  /** The stove at home: pick a recipe you know and have the ingredients for. */
+  private cook(): void {
+    const known = RECIPES.filter(r => state.recipes.includes(r.dish));
+    const has = (r: (typeof RECIPES)[number]) => r.needs.every(([id, n]) => countItem(id) >= n);
+    const label = (r: (typeof RECIPES)[number]) =>
+      `${has(r) ? '' : '(missing) '}${ITEMS[r.dish].name}: ${r.needs.map(([id, n]) => `${n > 1 ? `${n} ` : ''}${ITEMS[id].name}`).join(' + ')}`;
+    const missing = RECIPES.length - known.length;
+    ui.dialogue({
+      lines: [`The stove. What shall we cook?${missing ? ` (${missing} more recipe${missing > 1 ? 's' : ''} to learn from friends in town.)` : ''}`],
+      choices: [
+        ...known.map(r => ({
+          label: label(r),
+          action: () => {
+            if (!has(r)) { sfx('error'); ui.toast(`You need ${r.needs.map(([id, n]) => `${n} ${ITEMS[id].name}`).join(', ')}.`); return; }
+            for (const [id, n] of r.needs) removeItem(id, n);
+            if (!addItem(r.dish, 1)) {
+              for (const [id, n] of r.needs) addItem(id, n);
+              ui.toast('Your bag is full!');
+              return;
+            }
+            sfx('harvest');
+            ui.toast(`You cooked ${ITEMS[r.dish].name}!`);
+          },
+        })),
+        { label: 'Nothing for now' },
+      ],
+    });
   }
 
   private useInteractable(it: Interactable): void {
@@ -739,14 +856,16 @@ export class WorldScene extends Phaser.Scene {
       case 'bin':
         this.ship();
         break;
-      case 'shop':
-        ui.dialogue({
-          speaker: 'Bram',
-          lines: this.story.shopGreeting()
-            ?? [state.met.includes('bram') ? 'Back again, {name}? Have a look.' : "Welcome to Bram's, {name}! Seeds, snacks, and the odd trinket. Have a look."],
-          onClose: () => ui.shop(),
-        });
+      case 'shop': {
+        chatted('bram');
+        const greeting = this.story.shopGreeting()
+          ?? [state.met.includes('bram') ? 'Back again, {name}? Have a look.' : "Welcome to Bram's, {name}! Seeds, snacks, and the odd trinket. Have a look."];
+        ui.dialogue({ speaker: 'Bram', lines: [...greeting, ...claimRewards('bram')], onClose: () => ui.shop() });
         if (!state.met.includes('bram')) state.met.push('bram');
+        break;
+      }
+      case 'stove':
+        this.cook();
         break;
       case 'sign':
         ui.dialogue({ lines: it.lines ?? [] });
@@ -785,32 +904,49 @@ export class WorldScene extends Phaser.Scene {
     return true;
   }
 
+  /** The tile in front, plus the tiles either side of it once the tool is upgraded (a row of 3). */
+  private toolTiles(upgraded: boolean): Point[] {
+    const t = this.facingTarget();
+    if (!upgraded) return [{ x: t.tx, y: t.ty }];
+    const d = DIR[this.facing];
+    return [-1, 0, 1].map(i => ({ x: t.tx + i * d.y, y: t.ty + i * d.x }));
+  }
+
   private useHoe(): void {
     const t = this.facingTarget();
     this.toolAnim('hoe', t.px, t.py);
     if (!this.def.farmable) { ui.toast('The ground here is too hard. Till on your farm.'); return; }
-    const tile = this.layer.getTileAt(t.tx, t.ty);
-    const key = soilKey(t.tx, t.ty);
-    if (!tile || (tile.index !== T.GRASS && tile.index !== T.FLOWER) || state.soil[key]) return;
-    if (!this.spend(2)) return;
-    sfx('hoe');
-    // On a rainy day freshly tilled soil is already wet.
-    const wet = state.weather === 'rain';
-    state.soil[key] = { watered: wet };
-    this.layer.putTileAt(wet ? T.SOIL_WET : T.SOIL, t.tx, t.ty);
-    this.burst((t.tx + 0.5) * TILE, (t.ty + 0.5) * TILE, 0x7a5232, 6);
+    let any = false;
+    for (const p of this.toolTiles(state.upgrades.hoe > 0)) {
+      const tile = this.layer.getTileAt(p.x, p.y);
+      const key = soilKey(p.x, p.y);
+      if (!tile || (tile.index !== T.GRASS && tile.index !== T.FLOWER) || state.soil[key] || this.hasSprinkler(p.x, p.y)) continue;
+      if (!this.spend(2)) break;
+      any = true;
+      // On a rainy day freshly tilled soil is already wet.
+      const wet = state.weather === 'rain';
+      state.soil[key] = { watered: wet };
+      this.layer.putTileAt(wet ? T.SOIL_WET : T.SOIL, p.x, p.y);
+      this.burst((p.x + 0.5) * TILE, (p.y + 0.5) * TILE, 0x7a5232, 6);
+    }
+    if (any) sfx('hoe');
   }
 
   private useCan(): void {
     const t = this.facingTarget();
     this.toolAnim('can', t.px, t.py);
-    const soil = this.def.farmable ? state.soil[soilKey(t.tx, t.ty)] : undefined;
-    if (!soil || soil.watered) return;
-    if (!this.spend(1)) return;
-    sfx('water');
-    soil.watered = true;
-    this.layer.putTileAt(T.SOIL_WET, t.tx, t.ty);
-    this.burst((t.tx + 0.5) * TILE, (t.ty + 0.5) * TILE, 0x7fb4f2, 8);
+    if (!this.def.farmable) return;
+    let any = false;
+    for (const p of this.toolTiles(state.upgrades.can > 0)) {
+      const soil = state.soil[soilKey(p.x, p.y)];
+      if (!soil || soil.watered) continue;
+      if (!this.spend(1)) break;
+      any = true;
+      soil.watered = true;
+      this.layer.putTileAt(T.SOIL_WET, p.x, p.y);
+      this.burst((p.x + 0.5) * TILE, (p.y + 0.5) * TILE, 0x7fb4f2, 8);
+    }
+    if (any) sfx('water');
   }
 
   private plant(slot: number): void {
@@ -818,7 +954,14 @@ export class WorldScene extends Phaser.Scene {
     const soil = this.def.farmable ? state.soil[soilKey(t.tx, t.ty)] : undefined;
     if (!soil) { ui.toast('Seeds need tilled soil. Use the Hoe on your farm first.'); return; }
     if (soil.crop) return;
-    soil.crop = { id: ITEMS[state.inventory[slot]!.id].crop!, days: 0 };
+    const crop = ITEMS[state.inventory[slot]!.id].crop!;
+    if (!inSeason(crop)) {
+      sfx('error');
+      const when = CROPS[crop].seasons.map(i => SEASON_NAMES[i]).join(' and ');
+      ui.toast(`${ITEMS[crop].name} only grows in ${when}. It's ${SEASON_NAMES[seasonOf(state.day)]}.`);
+      return;
+    }
+    soil.crop = { id: crop, days: 0 };
     removeAt(slot, 1);
     sfx('plant');
     this.refreshCrop(t.tx, t.ty);
@@ -854,7 +997,11 @@ export class WorldScene extends Phaser.Scene {
 
   private offerEat(slot: number): void {
     const item = ITEMS[state.inventory[slot]!.id];
-    const gains = [item.energy ? `+${item.energy} energy` : '', item.heal ? `+${item.heal} heart` : ''].filter(Boolean).join(', ');
+    const BUFF_NAME = { speed: 'Fast', strength: 'Strong' } as const;
+    const gains = [
+      item.energy ? `+${item.energy} energy` : '', item.heal ? `+${item.heal} heart${item.heal > 1 ? 's' : ''}` : '',
+      item.buff ? `${BUFF_NAME[item.buff]} until bedtime` : '',
+    ].filter(Boolean).join(', ');
     ui.dialogue({
       lines: [`Eat the ${item.name}? (${gains})`],
       choices: [
@@ -864,6 +1011,7 @@ export class WorldScene extends Phaser.Scene {
             if (state.inventory[slot]?.id !== item.id) return;
             state.energy = Math.min(state.maxEnergy, state.energy + (item.energy ?? 0));
             state.hp = Math.min(state.maxHp, state.hp + (item.heal ?? 0));
+            if (item.buff) state.buffs[item.buff] = true;
             removeAt(slot, 1);
             sfx('pickup');
             ui.toast(`Yum! ${gains}`);
@@ -877,11 +1025,12 @@ export class WorldScene extends Phaser.Scene {
   private openMenu(): void {
     ui.dialogue({
       speaker: 'Menu',
-      lines: [`{name}  -  Day ${state.day}, ${formatTime(state.minutes)}.  Gold: ${state.gold}g.  Slimes defeated: ${state.slimes}.` +
+      lines: [`{name}  -  ${dateLabel(state.day)}, Year ${yearOf(state.day)} (day ${state.day}), ${formatTime(state.minutes)}.  Gold: ${state.gold}g.  Slimes defeated: ${state.slimes}.` +
         (goalText() ? `\nGoal: ${goalText()}` : '')],
       choices: [
         { label: 'Resume' },
         { label: 'Wait 1 hour', action: () => this.skipTime(60, false) },
+        { label: 'Friends', action: () => ui.dialogue({ speaker: 'Friends', lines: [friendsSummary().join('\n') + '\nTalk every day, and press Use while holding an item to give a gift.'] }) },
         { label: 'Controls', action: () => ui.dialogue({ speaker: 'Controls', lines: CONTROLS }) },
         { label: isMuted() ? 'Sound: off (turn on)' : 'Sound: on (turn off)', action: () => this.toggleSound() },
         {
@@ -924,7 +1073,7 @@ export class WorldScene extends Phaser.Scene {
       const sb = s.body as Body;
       if (!hits(new Phaser.Geom.Rectangle(sb.x, sb.y, sb.width, sb.height))) continue;
       const k = away(sb.center.x, sb.center.y);
-      if (s.damage(k.x, k.y, now)) this.killSlime(s);
+      if (s.damage(k.x, k.y, now, 1 + state.upgrades.sword + (state.buffs.strength ? 1 : 0))) this.killSlime(s);
       else sfx('slimeHit');
     }
   }
@@ -965,6 +1114,12 @@ export class WorldScene extends Phaser.Scene {
       const spot = [[0, 0], [0, 1], [1, 0], [-1, 0], [0, -1]].map(([dx, dy]) => ({ x: tx + dx, y: ty + dy })).find(p => this.canEnter(p.x, p.y));
       if (spot) this.addPickup((spot.x + 0.5) * TILE, (spot.y + 0.5) * TILE - 2, 'gel');
     }
+    // Deep Woods slimes also drop a Slime Core: blue ones sometimes, red ones usually.
+    if (s.tier > 1 && Math.random() < (s.tier === 3 ? 0.75 : 0.4)) {
+      const tx = Math.floor(s.x / TILE), ty = Math.floor((s.y + 4) / TILE);
+      const spot = [[1, 0], [-1, 0], [0, 1], [0, -1], [0, 0]].map(([dx, dy]) => ({ x: tx + dx, y: ty + dy })).find(p => this.canEnter(p.x, p.y));
+      if (spot) this.addPickup((spot.x + 0.5) * TILE, (spot.y + 0.5) * TILE - 2, 'core');
+    }
     this.removeSlime(s);
     if (state.slimes % 10 === 0) ui.toast(`${state.slimes} slimes defeated! Mayor Orla will be pleased.`);
   }
@@ -973,7 +1128,7 @@ export class WorldScene extends Phaser.Scene {
     const now = this.time.now;
     if (modal.open || this.transitioning || now < this.invulnUntil) return;
     if (s instanceof Slime && (s.dead || (wearingSuit() && !s.angry))) return;
-    state.hp--;
+    state.hp -= s instanceof Slime ? s.power : 1;
     sfx('hurt');
     this.invulnUntil = now + 1000;
     const dx = this.player.x - s.x, dy = this.player.y - s.y;

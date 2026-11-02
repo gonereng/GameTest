@@ -602,6 +602,46 @@ const ITEM_DRAW: Partial<Record<ItemId, (c: Ctx, ox: number) => void>> = {
     fill(c, ox + 5, 9, 6, 3, '#7fb4f2');
     px(c, ox + 6, 6, '#ffffff'); px(c, ox + 6, 7, '#ffffff');
   },
+  core(c, ox) {
+    disc(c, ox, 0, 8, 8.5, 5.6, '#3a1a6a');
+    disc(c, ox, 0, 8, 8.5, 4.8, '#9a6ae0');
+    disc(c, ox, 0, 8, 8.5, 2.6, '#e8d8ff');
+    px(c, ox + 6, 6, '#ffffff'); px(c, ox + 10, 11, '#6a3ab0');
+  },
+  soup(c, ox) {
+    disc(c, ox, 0, 8, 9, 6.4, '#7a4a24', (_x, y) => y >= 8);
+    fill(c, ox + 2, 8, 12, 1, '#a86a30');
+    fill(c, ox + 3, 7, 10, 2, '#e0a040');
+    px(c, ox + 5, 7, '#f0d070'); px(c, ox + 9, 7, '#c86030'); px(c, ox + 11, 8, '#8ac050');
+    for (const x of [5, 8, 11]) { px(c, ox + x, 4, '#d8dce0'); px(c, ox + x + 1, 3, '#d8dce0'); px(c, ox + x, 2, '#d8dce0'); }
+  },
+  omelette(c, ox) {
+    disc(c, ox, 0, 8, 10, 6.8, '#c8c0b0', (_x, y) => y >= 9);
+    fill(c, ox + 1, 10, 14, 1, '#e8e4dc');
+    disc(c, ox, 0, 8, 9, 5, '#d89a20', (_x, y) => y <= 10);
+    disc(c, ox, 0, 8, 9, 4.2, '#f4cc40', (_x, y) => y <= 10);
+    px(c, ox + 6, 7, '#fff0a0'); px(c, ox + 10, 8, '#8ac050');
+  },
+  tart(c, ox) {
+    fill(c, ox + 2, 9, 12, 5, '#b8783a');
+    fill(c, ox + 3, 9, 10, 4, '#e0a860');
+    fill(c, ox + 3, 8, 10, 2, '#c03050');
+    for (const [x, y] of [[4, 7], [7, 6], [10, 7], [6, 8], [9, 8]]) { px(c, ox + x, y, '#7a4ac0'); px(c, ox + x + 1, y, '#e04060'); }
+  },
+  stew(c, ox) {
+    disc(c, ox, 0, 8, 9, 6.4, '#3a3a48', (_x, y) => y >= 8);
+    fill(c, ox + 2, 8, 12, 1, '#5a5a68');
+    fill(c, ox + 3, 7, 10, 2, '#6fc8b0');
+    px(c, ox + 5, 7, '#e8fff8'); px(c, ox + 9, 7, '#8a2a20'); px(c, ox + 11, 8, '#4aa04a');
+    for (const x of [6, 10]) { px(c, ox + x, 4, '#c8f0ff'); px(c, ox + x + 1, 3, '#c8f0ff'); }
+  },
+  pie(c, ox) {
+    fill(c, ox + 2, 10, 12, 4, '#8a5220');
+    disc(c, ox, 0, 8, 10, 6, '#d89048', (_x, y) => y <= 10);
+    disc(c, ox, 0, 8, 10, 5, '#e8b060', (_x, y) => y <= 9);
+    fill(c, ox + 7, 5, 2, 2, '#4aa04a'); px(c, ox + 8, 4, '#7ad04a');
+    for (const x of [5, 11]) px(c, ox + x, 8, '#a86a30');
+  },
   sprinkler(c, ox) {
     fill(c, ox + 3, 11, 10, 4, '#5a6068');
     fill(c, ox + 4, 11, 8, 3, '#a8b0bc');
@@ -726,6 +766,31 @@ export function generateTextures(scene: Phaser.Scene): void {
   slime.add('1', 0, S, 0, S, S);
   slime.refresh();
 
+  // Deep Woods slimes: blue (tough) and red (tough, hits hard).
+  for (const [key, pal] of [
+    ['slime_blue', { k: '#14305a', g: '#6aa8f0', d: '#3a72c0', w: '#e8f4ff' }],
+    ['slime_red', { k: '#5a1414', g: '#f07060', d: '#c03a30', w: '#ffe8e0' }],
+  ] as const) {
+    const t = scene.textures.createCanvas(key, S * 2, S)!;
+    const tc = t.getContext();
+    sprite(tc, 0, 0, SLIME, pal);
+    sprite(tc, S, 0, SLIME_SQUASH, pal);
+    t.add('0', 0, 0, 0, S, S);
+    t.add('1', 0, S, 0, S, S);
+    t.refresh();
+  }
+
+  // Snow: soft white flakes, scrolled slowly by the UI in winter.
+  const snow = scene.textures.createCanvas('snow', 128, 128)!;
+  const snc = snow.getContext();
+  const sr = mulberry32(777);
+  for (let i = 0; i < 55; i++) {
+    const x = Math.floor(sr() * 127), y = Math.floor(sr() * 127), big = sr() < 0.4;
+    snc.fillStyle = `rgba(255, 255, 255, ${0.6 + sr() * 0.4})`;
+    snc.fillRect(x, y, big ? 2 : 1, big ? 2 : 1);
+  }
+  snow.refresh();
+
   // Lord Gloopington III and his pieces: a bright purple slime that stays visible at night.
   const gloop = scene.textures.createCanvas('gloop', S * 2, S)!;
   const glc = gloop.getContext();
@@ -849,6 +914,14 @@ export function createAnimations(scene: Phaser.Scene): void {
     frameRate: 3,
     repeat: -1,
   });
+  for (const key of ['slime_blue', 'slime_red']) {
+    scene.anims.create({
+      key: `${key}_idle`,
+      frames: [{ key, frame: '0' }, { key, frame: '1' }],
+      frameRate: 4,
+      repeat: -1,
+    });
+  }
   scene.anims.create({
     key: 'slime_idle',
     frames: [{ key: 'slime', frame: '0' }, { key: 'slime', frame: '1' }],

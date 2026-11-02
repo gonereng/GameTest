@@ -36,12 +36,26 @@ and fullscreen. Tap to advance dialogue. In the shop, tap an item twice to buy i
 
 - **Farming:** till grass with the hoe, plant seeds, water daily. Watered crops grow overnight.
   Strawberries (3 days), Onions (4), Potatoes (5), Leeks (6), Moonmelons (8).
+- **Seasons:** Spring, Summer, Fall and Winter, 28 days each. Crops only grow in their seasons
+  (Strawberries and Potatoes: spring and summer; Onions: spring and fall; Leeks: fall and winter;
+  Moonmelons: any season). Out-of-season crops wither when the season changes, and Bram only stocks
+  seeds that are in season. Fall turns the valley golden; in winter the rain falls as snow.
 - **Day cycle:** 6 AM to 2 AM (about 14 real minutes), with nightfall. Energy is spent by tools.
   Sleep in your bed to end the day and save. Staying up past 2 AM makes you pass out.
 - **Animals:** chickens lay eggs in the grass most mornings. Talk to the cow on your farm once a day for Milk.
 - **Weather:** once the moon is back in the sky, about one day in five is rainy. Rain waters every crop on the farm.
 - **Sprinklers:** buy them from Bram (120g + 2 Slime Gel) and place them on farm grass. Each waters the 8 tiles
   around it every morning. Talk to one to pick it back up.
+- **Friends:** talk to Mayor Orla, Pip and Bram every day, and give them gifts (hold an item and press Use
+  while facing them, or Bram's counter). Everyone has favourite and disliked gifts. At 2 and 4 hearts each of
+  them gives you something: recipes, a heart, a Farmer's Grant, or a discount at Bram's. See Menu → Friends.
+- **Cooking:** the fireplace in your house is a stove. Veggie Soup and Omelette are known from the start;
+  Berry Tart, Moon Stew and Leek Pie are taught by friends. Dishes restore lots of energy, sell for more than
+  their ingredients, and some make you Fast (quicker walking) or Strong (double sword damage) until bedtime.
+- **The Deep Woods:** once 15 slimes are defeated, a path opens on the west side of Mossy Woods. Blue slimes
+  are tough; red ones hit for two hearts. Both drop Slime Cores.
+- **Tool upgrades:** Bram upgrades your tools for gold, Slime Gel and Slime Cores: the Copper Hoe and Copper
+  Can work on a row of 3 tiles, and the Steel Sword hits twice as hard.
 - **Combat:** slimes roam Mossy Woods. Swing the sword to defeat them and collect Slime Gel.
   Getting knocked out sends you home and costs 10% of your gold.
 - **Economy:** sell crops, milk, eggs, forage and gel in the shipping bin. Buy seeds, bread, sprinklers,
@@ -105,6 +119,7 @@ src/
   textures.ts        All pixel art, drawn with canvas at startup
   slime.ts           Slime enemy
   critters.ts        Farm animals
+  friends.ts         Friendship: hearts, gift tastes and heart rewards
   audio.ts           Sound effects and music (Web Audio)
   quest.ts           The story: steps, dialogue, puzzles, Gerald, the Turnipult, the finale
   boss.ts            Lord Gloopington III
