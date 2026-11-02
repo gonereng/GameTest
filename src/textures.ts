@@ -463,6 +463,18 @@ export const CHARACTERS: Record<string, Record<string, string>> = {
   pip: { h: '#e8b040', c: '#e05a3a', p: '#3a5a8a' },
   bram: { h: '#3a2a1a', c: '#3f8a4a', p: '#6a5a3a' },
   hazel: { h: '#c8c4d0', c: '#e07a9a', p: '#8a4a5a' },
+  // The Wayfarer's Rest
+  barnaby: { h: '#b8b8b8', c: '#8a5a2a', p: '#4a3a2a' },
+  maeve: { h: '#e8e8f0', c: '#3a7a5a', p: '#2a3a2a' },
+  finn: { h: '#e0a040', c: '#3a5ac8', p: '#c83a5a' },
+  pell: { h: '#5a3a1a', c: '#d8d0b8', p: '#5a5a6a' },
+  jorah: { h: '#2a1a12', c: '#f4f4f4', p: '#3a3a3a' },
+  raymond: { h: '#d8b860', c: '#9aa8b8', p: '#4a5a7a' },
+  isla: { h: '#b83a2a', c: '#2a8a5a', p: '#6a4a2a' },
+  corvin: { h: '#6a6a6a', c: '#8a6a2a', p: '#3a2a1a' },
+  chancellor: { h: '#e8e8e8', c: '#5a1a6a', p: '#2a1a2a' },
+  traveler0: { h: '#3a2a1a', c: '#7a6a5a', p: '#4a4a4a' },
+  traveler1: { h: '#c8a060', c: '#5a7a8a', p: '#3a3a4a' },
   mortimer: { h: '#1a1a22', c: '#7a2a2a', p: '#2a2a32' },
 };
 
@@ -595,6 +607,22 @@ const ITEM_DRAW: Partial<Record<ItemId, (c: Ctx, ox: number) => void>> = {
     disc(c, ox, 0, 8, 11, 5.8, '#d89048', (_x, y) => y >= 6 && y <= 13);
     disc(c, ox, 0, 8, 10, 4, '#e8b060', (_x, y) => y >= 6 && y <= 9);
     for (const x of [5, 8, 11]) fill(c, ox + x, 7, 1, 2, '#a86a30');
+  },
+  honeywine(c, ox) {
+    fill(c, ox + 6, 1, 4, 2, '#8a5a2a');
+    fill(c, ox + 6, 3, 4, 2, '#c8a060');
+    fill(c, ox + 4, 5, 8, 10, '#6a3a1a');
+    fill(c, ox + 5, 6, 6, 8, '#e0a030');
+    fill(c, ox + 5, 6, 2, 8, '#f4c860');
+    fill(c, ox + 5, 9, 6, 2, '#f4f0e0');
+  },
+  ale(c, ox) {
+    fill(c, ox + 3, 4, 8, 11, '#8a5a2a');
+    fill(c, ox + 4, 6, 6, 8, '#c88a30');
+    fill(c, ox + 3, 2, 8, 3, '#f4f0e0');
+    px(c, ox + 4, 1, '#f4f0e0'); px(c, ox + 8, 1, '#f4f0e0');
+    fill(c, ox + 11, 6, 2, 1, '#8a5a2a'); fill(c, ox + 12, 6, 1, 6, '#8a5a2a'); fill(c, ox + 11, 11, 2, 1, '#8a5a2a');
+    fill(c, ox + 3, 8, 8, 1, '#6a3a1a');
   },
   tophat(c, ox) {
     fill(c, ox + 2, 12, 12, 2, '#1a1a22');

@@ -20,6 +20,12 @@ import type { WorldScene } from './scenes/WorldScene';
  *   4. Election morning: results, 800g, and Mayor Clementine gives 2 Milk a day.
  */
 
+/**
+ * Hazel's and Mortimer's quests are switched off: the game now follows "The Wayfarer's Rest" (src/inn.ts).
+ * Hazel and Mortimer stay in their houses and just chat. Set this to true to bring the quests back.
+ */
+export const SIDE_QUESTS_ENABLED = false;
+
 export const HAZEL = { NONE: 0, EGGS: 1, DONE: 2 } as const;
 export const EGGS_NEEDED = 10;
 export const MORT = { NONE: 0, ENDORSE: 1, HAT: 2, DEBATE: 3, WON: 4, DONE: 5 } as const;
@@ -27,8 +33,8 @@ export const PLEDGES_NEEDED = 5;
 const DEBATE_FROM = 20 * 60, DEBATE_TO = 24 * 60;
 
 const side = () => state.side;
-export const cowHasHat = () => side().mortimer >= MORT.DEBATE;
-export const mayorClementine = () => side().mortimer >= MORT.DONE;
+export const cowHasHat = () => SIDE_QUESTS_ENABLED && side().mortimer >= MORT.DEBATE;
+export const mayorClementine = () => SIDE_QUESTS_ENABLED && side().mortimer >= MORT.DONE;
 const chickenKind = (k: string) => k === 'chicken_red' || k === 'chicken_blonde' || k === 'chick';
 
 function say(speaker: string | undefined, lines: string[], extra: Partial<DialogueOpts> = {}) {
@@ -37,6 +43,7 @@ function say(speaker: string | undefined, lines: string[], extra: Partial<Dialog
 
 /** HUD lines for the active side quests. */
 export function sideGoals(): string[] {
+  if (!SIDE_QUESTS_ENABLED) return [];
   const s = side();
   const goals: string[] = [];
   if (s.hazel === HAZEL.EGGS) goals.push(`Hazel needs ${EGGS_NEEDED} Eggs for her Harvest Cake (${Math.min(countItem('egg'), EGGS_NEEDED)}/${EGGS_NEEDED}).`);
@@ -66,6 +73,7 @@ export class SideQuests {
   private get scene() { return this.w as unknown as Phaser.Scene; }
 
   create(): void {
+    if (!SIDE_QUESTS_ENABLED) return;
     const map = this.w.def.id;
     // Mortimer always wears his own (slightly larger) idea of a hat.
     if (map === 'mortimer') {
@@ -80,6 +88,7 @@ export class SideQuests {
   }
 
   onMinute(): void {
+    if (!SIDE_QUESTS_ENABLED) return;
     if (side().mortimer !== MORT.DEBATE) return;
     if (state.minutes === DEBATE_FROM) {
       if (this.w.def.id === 'town') this.setupDebate();
@@ -94,6 +103,7 @@ export class SideQuests {
 
   /** Election morning. */
   onNewDay(): void {
+    if (!SIDE_QUESTS_ENABLED) return;
     if (side().mortimer !== MORT.WON) return;
     side().mortimer = MORT.DONE;
     state.gold += 800;
@@ -110,6 +120,7 @@ export class SideQuests {
 
   /** Returns true if a side quest took over the conversation. */
   talk(npc: NpcDef): boolean {
+    if (!SIDE_QUESTS_ENABLED) return false;
     switch (npc.id) {
       case 'hazel': return this.talkHazel();
       case 'mortimer': return this.talkMortimer();
@@ -270,6 +281,7 @@ export class SideQuests {
    * Bram's shop counter. Returns true if the side quest opened its own dialogue (which then opens the shop).
    */
   shopCounter(): boolean {
+    if (!SIDE_QUESTS_ENABLED) return false;
     const s = side();
     if (s.mortimer !== MORT.ENDORSE || s.endorsed.includes('bram')) return false;
     if (countItem('core') < 2) {
@@ -296,6 +308,7 @@ export class SideQuests {
 
   /** Talking to an animal. Returns true if a side quest handled it. */
   critter(c: Critter): boolean {
+    if (!SIDE_QUESTS_ENABLED) return false;
     const s = side();
     if (s.mortimer === MORT.ENDORSE && chickenKind(c.kind)) {
       const key = `${this.w.def.id}:${c.slot}`;
@@ -349,12 +362,14 @@ export class SideQuests {
 
   /** The debate stage blocks walking while it's up. */
   blocks(x: number, y: number): boolean {
+    if (!SIDE_QUESTS_ENABLED) return false;
     if (!this.debateSprites.length) return false;
     return Object.values(DEBATE).some(p => p.x === x && p.y === y);
   }
 
   /** Using or talking at a tile. Returns true if a side quest handled it. */
   interactAt(tx: number, ty: number): boolean {
+    if (!SIDE_QUESTS_ENABLED) return false;
     if (!this.debateSprites.length) return false;
     if (tx === DEBATE.cow.x && ty === DEBATE.cow.y) { say(undefined, ['Moo.', '(Clementine is ready. She has been ready her whole life.)']); return true; }
     if (tx === DEBATE.rival.x && ty === DEBATE.rival.y) { say('Sir Wobblesworth', ['Blorp.', '(He adjusts his hat. It is the same hat. He copied us.)']); return true; }

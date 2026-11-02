@@ -31,7 +31,13 @@ export const flag = (f: string) => !!state.quest.flags[f];
 const setFlag = (f: string, v = true) => { state.quest.flags[f] = v; };
 
 /** True while the moon is missing from the sky. */
-export const moonMissing = () => flag('crashed') && !flag('launched');
+/**
+ * The moon story ("The Moon Is in My Turnip") is switched off: the game now follows "The Wayfarer's Rest"
+ * (src/inn.ts). Everything below is kept so it can come back: set this to true to switch it on again.
+ */
+export const MOON_STORY_ENABLED = false;
+
+export const moonMissing = () => MOON_STORY_ENABLED && flag('crashed') && !flag('launched');
 export const wearingSuit = () => state.inventory[state.selected]?.id === 'suit';
 export const deadlineDay = () => state.quest.crashDay + 3;
 /** The story only counts down once the player has talked to Gerald and agreed to help (step ASK onwards). */
@@ -62,6 +68,7 @@ function partsStatus() {
 
 /** The current objective, shown in the HUD and the menu. */
 export function goalText(): string | null {
+  if (!MOON_STORY_ENABLED) return null;
   const q = state.quest;
   switch (q.step) {
     case Q.FALLEN: return flag('metGerald')
@@ -88,6 +95,7 @@ export function goalText(): string | null {
 
 /** A short "days left" note while the clock is ticking. */
 export function deadlineText(): string | null {
+  if (!MOON_STORY_ENABLED) return null;
   if (!questAccepted() || flag('eternal')) return null;
   const left = deadlineDay() - state.day;
   if (left > 0) return `Deadline: midnight, Day ${deadlineDay()} (${left} day${left > 1 ? 's' : ''} left)`;
@@ -106,6 +114,7 @@ function say(speaker: string | undefined, lines: string[], extra: Partial<Dialog
 export interface StoryShopEntry { key: 'suit' | 'spoon'; name: string; price: number; gel?: number; desc: string }
 
 export function storyShopEntries(): StoryShopEntry[] {
+  if (!MOON_STORY_ENABLED) return [];
   const out: StoryShopEntry[] = [];
   if (state.quest.step >= Q.BURROW && countItem('suit') === 0) {
     out.push({ key: 'suit', name: 'Slime Suit', price: 50, gel: 5, desc: '50g + 5 Slime Gel. "I don\'t ask questions." Hold it to wear it.' });
@@ -149,6 +158,7 @@ export class Story implements BossHost {
   private get map() { return this.w.def.id; }
 
   create(): void {
+    if (!MOON_STORY_ENABLED) return;
     const q = state.quest;
     if (this.map === 'farm' && flag('crashed')) this.setupCrater();
     if (this.map === 'forest') this.setupRing();
@@ -165,6 +175,7 @@ export class Story implements BossHost {
   // ---------------------------------------------------------------- hooks from WorldScene
 
   update(now: number, paused: boolean): void {
+    if (!MOON_STORY_ENABLED) return;
     if (this.boss?.active) this.boss.think(now, this.w.player, paused || this.launching);
     if (this.pet) {
       const p = this.w.player;
@@ -177,6 +188,7 @@ export class Story implements BossHost {
 
   /** Called once per in-game minute, on any map. */
   onMinute(): void {
+    if (!MOON_STORY_ENABLED) return;
     const q = state.quest;
     const m = state.minutes;
     if (q.step === Q.NONE && m >= BOSS_HOUR) this.crash(true);
@@ -189,6 +201,7 @@ export class Story implements BossHost {
   }
 
   onNewDay(): void {
+    if (!MOON_STORY_ENABLED) return;
     const q = state.quest;
     if (q.step === Q.NONE && state.day >= 2) {
       // You slept through it, but it still happened.
@@ -219,6 +232,7 @@ export class Story implements BossHost {
 
   /** fromUse: triggered by Space with an item, rather than E. */
   interactAt(tx: number, ty: number, fromUse = false): boolean {
+    if (!MOON_STORY_ENABLED) return false;
     if (this.map === 'farm' && flag('crashed') && isCrater(tx, ty)) {
       if (flag('launched')) say(undefined, ['A Gerald-shaped hole. Crops right next to it grow in the moonlight.']);
       else this.talkGerald();
@@ -240,6 +254,7 @@ export class Story implements BossHost {
 
   /** Returns true if the story took over this conversation. */
   talk(npc: NpcDef, sprite: Phaser.GameObjects.Sprite): boolean {
+    if (!MOON_STORY_ENABLED) return false;
     const step = state.quest.step;
     switch (npc.id) {
       case 'orla':
@@ -274,6 +289,7 @@ export class Story implements BossHost {
   }
 
   shopGreeting(): string[] | null {
+    if (!MOON_STORY_ENABLED) return null;
     const step = state.quest.step;
     if (flag('launched') && !flag('bramSun')) {
       setFlag('bramSun');
@@ -302,6 +318,7 @@ export class Story implements BossHost {
     away: (x: number, y: number) => { x: number; y: number },
     now: number,
   ): void {
+    if (!MOON_STORY_ENABLED) return;
     if (this.fakeBush && !flag('bush')) {
       if (hits(new Phaser.Geom.Rectangle(FAKE_BUSH.x * TILE, FAKE_BUSH.y * TILE, TILE, TILE))) this.revealBush();
     }

@@ -3,7 +3,7 @@ export type Season = 0 | 1 | 2 | 3;
 export const SEASON_NAMES = ['Spring', 'Summer', 'Fall', 'Winter'] as const;
 export const DAYS_PER_SEASON = 28;
 export type Buff = 'speed' | 'strength';
-export type DishId = 'soup' | 'omelette' | 'tart' | 'stew' | 'pie';
+export type DishId = 'soup' | 'omelette' | 'tart' | 'stew' | 'pie' | 'honeywine' | 'ale';
 export type ItemId =
   | 'hoe' | 'can' | 'sword'
   | 'seed_strawberry' | 'seed_onion' | 'seed_potato' | 'seed_leek' | 'seed_moonmelon'
@@ -48,7 +48,7 @@ export const ITEMS: Record<ItemId, ItemDef> = {
   egg: { id: 'egg', name: 'Egg', kind: 'produce', sell: 25, energy: 12, desc: 'Fresh from a chicken. Still warm.' },
   golden_egg: { id: 'golden_egg', name: 'Golden Egg', kind: 'produce', sell: 200, desc: 'Shiny, heavy, and slightly smug. Do not eat.' },
   gel: { id: 'gel', name: 'Slime Gel', kind: 'material', sell: 15, desc: 'Wobbly. Somebody buys this stuff.' },
-  berry: { id: 'berry', name: 'Wild Berries', kind: 'forage', sell: 10, energy: 10, desc: 'Found in Mossy Woods.' },
+  berry: { id: 'berry', name: 'Wild Berries', kind: 'forage', sell: 10, energy: 10, desc: 'Found in the Whispering Woods.' },
   mushroom: { id: 'mushroom', name: 'Woodcap', kind: 'forage', sell: 25, energy: 15, heal: 1, desc: 'A sturdy forest mushroom.' },
   suit: { id: 'suit', name: 'Slime Suit', kind: 'tool', desc: 'Hold it to become a slime. Mostly.' },
   bread: { id: 'bread', name: 'Fresh Bread', kind: 'food', price: 40, energy: 45, heal: 1, desc: 'Restores lots of energy.' },
@@ -61,6 +61,8 @@ export const ITEMS: Record<ItemId, ItemDef> = {
   pie: { id: 'pie', name: 'Leek Pie', kind: 'food', sell: 230, energy: 70, buff: 'strength', desc: "Bram's recipe. Makes you Strong until bedtime." },
   tophat: { id: 'tophat', name: 'Tiny Top Hat', kind: 'tool', price: 150, desc: 'Very small. Very distinguished. Cow-sized.' },
   cake: { id: 'cake', name: 'Harvest Cake', kind: 'food', sell: 500, energy: 100, heal: 3, desc: "Hazel's legendary Harvest Cake. Ten eggs' worth of glory." },
+  honeywine: { id: 'honeywine', name: 'Honey-Wine', kind: 'food', sell: 90, energy: 30, desc: "Sweet berry mead, the way Barnaby likes it. The way everyone likes it." },
+  ale: { id: 'ale', name: 'Root Ale', kind: 'food', sell: 80, energy: 25, desc: 'Brewed from potatoes. Earthy, honest, slightly suspicious.' },
   sprinkler: { id: 'sprinkler', name: 'Sprinkler', kind: 'placeable', price: 120, gel: 2, desc: 'Place it on farm grass. Waters the 8 tiles around it every morning.' },
 };
 
@@ -99,6 +101,9 @@ export const RECIPES: Recipe[] = [
   { dish: 'tart', needs: [['strawberry', 1], ['berry', 2], ['egg', 1]] },
   { dish: 'pie', needs: [['leek', 1], ['egg', 1], ['milk', 1]] },
   { dish: 'stew', needs: [['moonmelon', 1], ['leek', 1], ['mushroom', 1]] },
+  // Brewed at the hearth too, once Barnaby has shown you how (The Wayfarer's Rest, Act I).
+  { dish: 'honeywine', needs: [['berry', 4]] },
+  { dish: 'ale', needs: [['potato', 2]] },
 ];
 
 export const STARTING_RECIPES: DishId[] = ['soup', 'omelette'];

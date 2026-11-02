@@ -4,7 +4,8 @@ import {
   BACKPACK_SIZE, addItem, countItem, dateLabel, formatTime, inSeason, itemName, removeItem, runtime, seasonOf, state, type ToolId,
 } from '../state';
 import { shopDiscount } from '../friends';
-import { MORT, sideGoals } from '../sidequests';
+import { MORT, SIDE_QUESTS_ENABLED, sideGoals } from '../sidequests';
+import { innGoal } from '../inn';
 import { sfx } from '../audio';
 import { bus, modal, type DialogueOpts } from '../bus';
 import { TouchControls, isTouchDevice, touch } from '../touch';
@@ -36,7 +37,7 @@ const UPGRADES: ShopEntry[] = [
 function baseShop(): ShopEntry[] {
   const seeds = (Object.values(CROPS).filter(c => inSeason(c.id)).map(c => c.seed));
   return [
-    ...([...seeds, 'bread', 'sprinkler', ...(state.side.mortimer === MORT.HAT && !countItem('tophat') ? ['tophat'] : [])] as ItemId[]).map(id => ({
+    ...([...seeds, 'bread', 'sprinkler', ...(SIDE_QUESTS_ENABLED && state.side.mortimer === MORT.HAT && !countItem('tophat') ? ['tophat'] : [])] as ItemId[]).map(id => ({
       id, name: ITEMS[id].name, price: ITEMS[id].price!, desc: ITEMS[id].desc,
       needs: ITEMS[id].gel ? [['gel', ITEMS[id].gel!] as [ItemId, number]] : undefined,
     })),
@@ -98,6 +99,7 @@ export class UIScene extends Phaser.Scene {
   private goalGfx!: Phaser.GameObjects.Graphics;
   private goalText!: Phaser.GameObjects.Text;
   private lastGoal = '';
+  private lastGoalKey = '';
   private entries: ShopEntry[] = [];
   private touchUI?: TouchControls;
   /** On touch screens the first tap on a shop row selects it and the second buys it. */
@@ -321,7 +323,11 @@ export class UIScene extends Phaser.Scene {
     const goal = runtime.visit ? `Visiting ${runtime.visit.name}'s farm. Look, don't touch!` : goalText();
     const deadline = runtime.visit ? 'Esc: go home' : deadlineText();
     // The moon story first (with its deadline), then any side quests from the townsfolk.
-    const parts = [goal ? `${goal}${deadline ? `\n${deadline}` : ''}` : '', ...(runtime.visit ? [] : sideGoals())].filter(Boolean);
+    const parts = [
+      runtime.visit ? '' : innGoal() ?? '',
+      goal ? `${goal}${deadline ? `\n${deadline}` : ''}` : '',
+      ...(runtime.visit ? [] : sideGoals()),
+    ].filter(Boolean);
     const text = parts.join('\n\n');
     if (text === this.lastGoal) return;
     this.lastGoal = text;
@@ -331,7 +337,10 @@ export class UIScene extends Phaser.Scene {
     const w = this.goalText.width + 24, h = this.goalText.height + 16;
     this.goalGfx.fillStyle(PANEL, 0.75).fillRoundedRect(this.W - 12 - w, 104, w, h, 8);
     this.goalGfx.lineStyle(2, 0x9fc8ff, 1).strokeRoundedRect(this.W - 12 - w, 104, w, h, 8);
-    this.flash(this.itemName, 'New goal!', 900);
+    // The inn's Reputation / Hearth line changes all the time; only a real change of goal flashes.
+    const key = text.replace(/^Reputation .*$/m, '');
+    if (key !== this.lastGoalKey) this.flash(this.itemName, 'New goal!', 900);
+    this.lastGoalKey = key;
   }
 
   private drawHotbar(): void {
@@ -576,7 +585,7 @@ export class UIScene extends Phaser.Scene {
     const short = (e.needs ?? []).find(([id, n]) => countItem(id) < n);
     if (short) {
       const [id, n] = short;
-      fail(`Bram also wants ${n} ${ITEMS[id].name}${id === 'core' ? 's from the Deep Woods' : id === 'gel' ? ' from Mossy Woods' : ''}.`);
+      fail(`Bram also wants ${n} ${ITEMS[id].name}${id === 'core' ? 's from the Deep Woods' : id === 'gel' ? ' from the Whispering Woods' : ''}.`);
       return;
     }
     let rebuild = false;
