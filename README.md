@@ -43,6 +43,8 @@ and fullscreen. Tap to advance dialogue. In the shop, tap an item twice to buy i
 - **Day cycle:** 6 AM to 2 AM (about 14 real minutes), with nightfall. Energy is spent by tools.
   Sleep in your bed to end the day and save. Staying up past 2 AM makes you pass out.
 - **Animals:** chickens lay eggs in the grass most mornings. Talk to the cow on your farm once a day for Milk.
+- **The cat:** a grey cat sits by your house. Pet it (Talk or Use while facing it). Keep going. On the 10th pet
+  it spins like there's no tomorrow and sings its song: OIIA OIIA. Visitors can pet it too.
 - **Weather:** once the moon is back in the sky, about one day in five is rainy. Rain waters every crop on the farm.
 - **Sprinklers:** buy them from Bram (120g + 2 Slime Gel) and place them on farm grass. Each waters the 8 tiles
   around it every morning. Talk to one to pick it back up.
@@ -134,6 +136,7 @@ src/
   textures.ts        All pixel art, drawn with canvas at startup
   slime.ts           Slime enemy
   critters.ts        Farm animals
+  cat.ts             The farm cat and its dance
   friends.ts         Friendship: hearts, gift tastes and heart rewards
   audio.ts           Sound effects and music (Web Audio)
   quest.ts           The story: steps, dialogue, puzzles, Gerald, the Turnipult, the finale

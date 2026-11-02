@@ -730,6 +730,73 @@ function heart(c: Ctx, ox: number, color: string, shine: boolean) {
 
 // ---------------------------------------------------------------- entry point
 
+// ---------------------------------------------------------------- the cat
+
+/** A grey cat with a white chest: front, side (facing right) and back views, so it can spin. */
+const CAT_FRONT = [
+  '................',
+  '..k..........k..',
+  '.kpk........kpk.',
+  '.kgpk......kpgk.',
+  '.kgggkkkkkkgggk.',
+  '.kggggggggggggk.',
+  'kggwwggggggwwggk',
+  'kggwkggggggwkggk',
+  'kggggggnnggggggk',
+  '.kggggwkkwggggk.',
+  '..kkggwwwwggkk..',
+  '..kggggwwggggk..',
+  '.kggggwwwwggggk.',
+  '.kgggwwwwwwgggk.',
+  '.kggwwkggkwwggk.',
+  '..kkkk.kk.kkkk..',
+];
+const CAT_SIDE = [
+  '................',
+  '...k..k.........',
+  '..kpkkpk........',
+  '..kgggggk.......',
+  '.kgggggwk.......',
+  '.kgggggkwk......',
+  '.kggggggnk......',
+  '..kgggwwk.......',
+  '...kggwk....kk..',
+  '..kggggkk..kgk..',
+  '.kggggggkkkgk...',
+  '.kgggggggggk....',
+  '.kggggggggk.....',
+  '.kgwwggggwk.....',
+  '.kwwk.kgwwk.....',
+  '..kk...kkk......',
+];
+const CAT_BACK = [
+  '................',
+  '..k..........k..',
+  '.kgk........kgk.',
+  '.kggk......kggk.',
+  '.kgggkkkkkkgggk.',
+  '.kggggggggggggk.',
+  'kggggddddddggggk',
+  'kgggggddddgggggk',
+  'kggggggggggggggk',
+  '.kggggggggggggk.',
+  '..kkggggggggkk..',
+  '..kggggddggggk..',
+  '.kgggggddgggggkk',
+  '.kggggggggggggkg',
+  '.kggggggggggggkk',
+  '..kkkkkkkkkkkk..',
+];
+const CAT_PAL = { k: '#2a2a32', g: '#9a9aa8', d: '#7a7a88', w: '#f4f4f8', p: '#f0a0b0', n: '#e07090' };
+
+function makeCat(scene: Phaser.Scene): void {
+  const t = scene.textures.createCanvas('cat', S * 3, S)!;
+  const c = t.getContext();
+  [CAT_FRONT, CAT_SIDE, CAT_BACK].forEach((rows, i) => sprite(c, i * S, 0, rows, CAT_PAL));
+  ['front', 'side', 'back'].forEach((f, i) => t.add(f, 0, i * S, 0, S, S));
+  t.refresh();
+}
+
 export function generateTextures(scene: Phaser.Scene): void {
   const r = mulberry32(7);
 
@@ -756,6 +823,7 @@ export function generateTextures(scene: Phaser.Scene): void {
   tiles.refresh();
 
   for (const [key, colors] of Object.entries(CHARACTERS)) makeCharacter(scene, key, colors);
+  makeCat(scene);
 
   const slime = scene.textures.createCanvas('slime', S * 2, S)!;
   const sc = slime.getContext();
