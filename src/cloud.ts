@@ -145,7 +145,10 @@ export const setOnBoards = (onBoards: boolean) => api<Profile>('/me', { method: 
 
 /** The farm part of someone's save, for a read-only visit. */
 export const fetchFarm = (code: string) =>
-  api<{ farm: Partial<GameState> }>(`/farm/${encodeURIComponent(code.replace(/[\s-]/g, ''))}`, { auth: false });
+  api<{ farm: Partial<GameState>; updatedAt: string }>(`/farm/${encodeURIComponent(code.replace(/[\s-]/g, ''))}`, { auth: false });
+
+/** Sends the live view of your farm, so visitors see changes made since bedtime. */
+export const pushFarm = (farm: Partial<GameState>) => api<{ updatedAt: string }>('/me/farm', { method: 'PUT', body: farm });
 
 export type BoardId = 'shipped' | 'slimes' | 'moon';
 export const fetchBoard = (board: BoardId) =>
