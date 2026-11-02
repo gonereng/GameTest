@@ -69,8 +69,8 @@ and fullscreen. Tap to advance dialogue. In the shop, tap an item twice to buy i
 
 ## The story: "The Moon Is in My Turnip"
 
-At 10 PM on Day 1 the moon falls onto your farm. It's a talking turnip named Gerald, and it has to be
-back in the sky by midnight on Day 4. Follow the goal panel under the clock (top right). The full
+At 10 PM on Day 1 the moon falls onto your farm. It's a talking turnip named Gerald. Talk to him and
+agree to help, and you have three days to get him back into the sky (until then, there's no rush). Follow the goal panel under the clock (top right). The full
 design, including every scene and both endings, is in [docs/STORY.md](docs/STORY.md).
 
 Spoiler-free tips: talk to everyone, keep some Slime Gel, and water the soil right next to Gerald.

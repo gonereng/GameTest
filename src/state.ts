@@ -50,6 +50,7 @@ export interface GameState {
   /** When this was last saved (ms since 1970), to pick the newer of the cloud and local saves. */
   savedAt: number;
   /** Story progress: see quest.ts for the steps and flags. */
+  /** crashDay: the day the story's countdown started (the day you agreed to help Gerald). */
   quest: { step: number; flags: Record<string, boolean>; crashDay: number; launchDay?: number };
   met: string[];
   shipped: number;
@@ -340,11 +341,13 @@ export function sprinklerReach(key: string): string[] {
 }
 
 /**
- * The weather for a day. About one day in five is rainy, but only once the story's moon is back in the sky,
- * so rain never waters Gerald's Moonpatch for you or clouds the story's nights.
+ * The weather for a day. About one day in five is rainy, but never while you're helping Gerald (the story's
+ * nights should stay clear, and rain would water his Moonpatch for you). Story steps 2-8 are that stretch
+ * (quest.ts: ASK to MIDNIGHT), from agreeing to help until he's back in the sky.
  */
 export function rollWeather(day: number): Weather {
-  if (!state.quest.flags.launched) return 'sun';
+  const step = state.quest.step;
+  if (day < 2 || (step >= 2 && step <= 8)) return 'sun';
   return mulberry32(day * 2654435761 + 977)() < 0.2 ? 'rain' : 'sun';
 }
 

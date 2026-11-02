@@ -34,6 +34,8 @@ const setFlag = (f: string, v = true) => { state.quest.flags[f] = v; };
 export const moonMissing = () => flag('crashed') && !flag('launched');
 export const wearingSuit = () => state.inventory[state.selected]?.id === 'suit';
 export const deadlineDay = () => state.quest.crashDay + 3;
+/** The story only counts down once the player has talked to Gerald and agreed to help (step ASK onwards). */
+export const questAccepted = () => state.quest.step >= Q.ASK && state.quest.step < Q.DONE;
 
 function isCrater(x: number, y: number) {
   return x >= CRATER.x && x <= CRATER.x + 1 && y >= CRATER.y && y <= CRATER.y + 1;
@@ -62,7 +64,9 @@ function partsStatus() {
 export function goalText(): string | null {
   const q = state.quest;
   switch (q.step) {
-    case Q.FALLEN: return 'Something fell on your farm. Go and look!';
+    case Q.FALLEN: return flag('metGerald')
+      ? 'Gerald is waiting in his crater, in case you change your mind.'
+      : 'Something fell on your farm. Go and look!';
     case Q.ASK: return 'Ask around town about the Moonstring.';
     case Q.RING: return 'Find the circle of bushes past the bridge in Mossy Woods.';
     case Q.BURROW: return flag('doorSeen')
@@ -84,8 +88,7 @@ export function goalText(): string | null {
 
 /** A short "days left" note while the clock is ticking. */
 export function deadlineText(): string | null {
-  const q = state.quest;
-  if (q.step < Q.FALLEN || q.step >= Q.DONE || flag('eternal')) return null;
+  if (!questAccepted() || flag('eternal')) return null;
   const left = deadlineDay() - state.day;
   if (left > 0) return `Deadline: midnight, Day ${deadlineDay()} (${left} day${left > 1 ? 's' : ''} left)`;
   return 'Deadline: TONIGHT at midnight!';
@@ -192,11 +195,12 @@ export class Story implements BossHost {
       this.crash(false);
       q.crashDay = state.day - 1;
     }
-    if (q.step > Q.NONE && q.step < Q.DONE && state.day === deadlineDay() && !flag('backup')) {
+    // The countdown (and the endless night if it runs out) only applies once you've agreed to help Gerald.
+    if (questAccepted() && state.day === deadlineDay() && !flag('backup')) {
       setFlag('backup');
       saveBackup();
     }
-    if (q.step > Q.NONE && q.step < Q.DONE && state.day > deadlineDay() && !flag('eternal')) {
+    if (questAccepted() && state.day > deadlineDay() && !flag('eternal')) {
       this.scene.time.delayedCall(700, () => this.failed());
     }
     if (flag('launched') && !flag('epilogue')) {
@@ -361,19 +365,46 @@ export class Story implements BossHost {
 
   // ---------------------------------------------------------------- Gerald
 
+  /** You agreed to help: the story (and its three-day countdown) starts today. */
+  private acceptQuest(): void {
+    const q = state.quest;
+    q.step = Q.ASK;
+    // The countdown (and the fastest-rescue leaderboard) runs from today, not from when the moon fell.
+    q.crashDay = state.day;
+    ui.toast('Quest started: The Moon Is in My Turnip!');
+    say('Gerald', [
+      'Splendid! Oh, splendid.',
+      `Then we have until midnight on Day ${deadlineDay()}. After that, the night will simply... continue.`,
+      "I'm told that is bad for crops. Do ask around town. Somebody must have seen something.",
+    ]);
+  }
+
   private talkGerald(): void {
     const q = state.quest;
     const G = 'Gerald';
     if (q.step === Q.FALLEN) {
-      q.step = Q.ASK;
-      say(G, [
+      // Nothing is on the clock until you agree to help. Say no, and Gerald will ask again next time.
+      const first = !flag('metGerald');
+      setFlag('metGerald');
+      say(G, first ? [
         'Ah. Hello. Please don\'t eat me.',
         'I am the Moon. You may call me Gerald. And you are... {name}? Splendid name. Very earthy.',
         'I seem to have fallen into your vegetable. It was the nearest soft thing.',
         'Someone cut my string. The Moonstring. It held me up there for four billion years.',
-        `If I am not back up by midnight on Day ${deadlineDay()}, the night will simply... continue. Forever.`,
-        "I'm told that is bad for crops. Do ask around town. Somebody must have seen something.",
-      ]);
+        "Once I start trying to get back up, I'll have three days before the sky forgets me and the night simply... continues. Forever.",
+        'Will you help me get home, {name}?',
+      ] : [
+        'Oh, hello again. Still in your vegetable, I\'m afraid.',
+        'Have you thought any more about helping me get home? Three days, once we start.',
+      ], {
+        choices: [
+          { label: "I'll help you get home", action: () => this.acceptQuest() },
+          {
+            label: 'Not right now',
+            action: () => say(G, ["Oh. Well. That's quite all right. I'll be here.", 'In your vegetable. Do come back if you change your mind.']),
+          },
+        ],
+      });
       return;
     }
     if (q.step < Q.CONFRONT) {
