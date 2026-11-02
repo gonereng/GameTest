@@ -21,8 +21,17 @@ export function consumeTouch(k: 'use' | 'talk' | 'menu'): boolean {
   return v;
 }
 
+/**
+ * True when the main way of playing is a finger: phones and tablets. Many desktop and laptop browsers report
+ * touch support even with a mouse and keyboard, so this asks what the *primary* pointer is instead. A desktop
+ * with a touchscreen still gets the on-screen controls the moment it's actually touched (see TouchControls).
+ */
 export function isTouchDevice(): boolean {
-  return typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
+  if (typeof window === 'undefined') return false;
+  if (window.matchMedia?.('(pointer: coarse)').matches) return true;
+  // Older browsers without pointer media queries: touch support and no mouse-like pointer at all.
+  const anyFine = window.matchMedia?.('(any-pointer: fine)').matches;
+  return anyFine === undefined && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
 }
 
 /** Default joystick spot, measured from the bottom-left corner. */
@@ -64,6 +73,8 @@ export class TouchControls {
     scene.input.on('pointermove', this.onMove, this);
     scene.input.on('pointerup', this.onUp, this);
     scene.input.on('pointerupoutside', this.onUp, this);
+    // A key press means a keyboard is in use: hide the touch controls until the screen is touched again.
+    scene.input.keyboard?.on('keydown', () => this.disable());
     this.setVisible(touch.enabled);
   }
 
@@ -73,9 +84,20 @@ export class TouchControls {
 
   /** Fade the controls while a dialogue or the shop is open. */
   update(): void {
+    if (this.root.visible !== touch.enabled) this.setVisible(touch.enabled);
     if (!touch.enabled) return;
-    if (!this.root.visible) this.setVisible(true);
     this.root.setAlpha(modal.open ? 0.25 : 1);
+  }
+
+  /** Back to keyboard and mouse: hide the controls and let go of the joystick. */
+  private disable(): void {
+    if (!touch.enabled) return;
+    touch.enabled = false;
+    touch.dx = touch.dy = 0;
+    this.stickId = null;
+    this.origin = { ...this.home };
+    this.drawStick();
+    this.setVisible(false);
   }
 
   /** Positions the controls relative to the screen edges. */
@@ -149,6 +171,8 @@ export class TouchControls {
       touch.enabled = true;
       this.setVisible(true);
     }
+    // A mouse click (not a finger) on a touchscreen laptop: back to mouse and keyboard.
+    if (!p.wasTouch && touch.enabled) { this.disable(); return; }
     if (!touch.enabled) return;
     if (this.hit(this.full, p)) return; // handled on pointer up (browsers need that for fullscreen)
     if (modal.open) return;
