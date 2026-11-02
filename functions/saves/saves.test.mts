@@ -26,6 +26,7 @@ const token = (sub: string, opts: { key?: typeof privateKey; issuer?: string; ex
     .setIssuer(opts.issuer ?? ISSUER).setIssuedAt().setExpirationTime(opts.exp ?? '15m').sign(opts.key ?? privateKey);
 
 const app = (await import('./index.ts')).default as { fetch: (r: Request) => Promise<Response> };
+const pool = new (await import('pg')).default.Pool({ connectionString: process.env.DATABASE_URL });
 const call = (method: string, path: string, init: { token?: string; body?: string; origin?: string; headers?: Record<string, string> } = {}) =>
   app.fetch(new Request('http://fn' + path, {
     method,
@@ -83,6 +84,76 @@ check('401 responses still carry CORS headers', unauth.status === 401 && unauth.
 check('Alice deletes her save -> 204', (await call('DELETE', '/save', { token: alice })).status === 204);
 check('then Alice has no save -> 404', (await call('GET', '/save', { token: alice })).status === 404);
 check("and Bob's save is still there", (await call('GET', '/save', { token: bob })).status === 200);
+
+// ------------------------------------------------------------------ profiles, visiting, leaderboards, gifts
+const carol = await token('user-carol');
+await pool.query("DELETE FROM gifts WHERE from_user LIKE 'user-%' OR to_user LIKE 'user-%'");
+await pool.query("DELETE FROM profiles WHERE user_id LIKE 'user-%'");
+const json = async (r: Response) => ({ status: r.status, body: await r.json() as Record<string, any> });
+
+check('GET /me without a token -> 401', (await call('GET', '/me')).status === 401);
+const meA = await json(await call('GET', '/me', { token: alice }));
+check('GET /me makes an 8-letter share code', meA.status === 200 && /^[A-HJ-NP-Z2-9]{8}$/.test(meA.body.code), meA.body.code);
+check('leaderboards are opt-in (off by default)', meA.body.onBoards === false);
+check('the same code comes back next time', (await json(await call('GET', '/me', { token: alice }))).body.code === meA.body.code);
+const meB = await json(await call('GET', '/me', { token: bob }));
+check('Bob gets a different code', meB.body.code !== meA.body.code);
+check('PUT /me rejects a non-boolean', (await call('PUT', '/me', { token: alice, body: '{"onBoards":"yes"}' })).status === 400);
+check('PUT /me opts in', (await json(await call('PUT', '/me', { token: alice, body: '{"onBoards":true}' }))).body.onBoards === true);
+
+// Alice saves a farm with private things in it.
+await call('PUT', '/save', { token: alice, body: JSON.stringify({ ...aliceSave, shipped: 900, slimes: 12, soil: { '9,17': { watered: true } }, friends: { pip: { points: 99 } }, quest: { crashDay: 1, launchDay: 3, step: 9, flags: {} } }) });
+const dashed = meA.body.code.slice(0, 4).toLowerCase() + '-' + meA.body.code.slice(4).toLowerCase();
+const farm = await json(await call('GET', `/farm/${dashed}`));
+check('anyone can visit by code (any case, with a dash)', farm.status === 200 && farm.body.farm.playerName === 'Alice' && !!farm.body.farm.soil['9,17']);
+check('a visit only shows the farm, not the bag, gold or friendships',
+  !('inventory' in farm.body.farm) && !('gold' in farm.body.farm) && !('friends' in farm.body.farm));
+check('unknown code -> 404', (await call('GET', '/farm/ZZZZZZZZ')).status === 404);
+check('malformed code -> 404', (await call('GET', '/farm/hello')).status === 404);
+
+// Bob saves too but stays off the boards; Carol opts in with a broken save that must not break the query.
+await call('PUT', '/save', { token: bob, body: JSON.stringify({ ...aliceSave, playerName: 'Bob', shipped: 5000, slimes: 99 }) });
+await call('GET', '/me', { token: carol });
+await call('PUT', '/me', { token: carol, body: '{"onBoards":true}' });
+await call('PUT', '/save', { token: carol, body: JSON.stringify({ version: 1, playerName: 'Carol', shipped: 'lots', slimes: 40, quest: { crashDay: 2, launchDay: 3 } }) });
+const shipped = await json(await call('GET', '/leaderboard/shipped'));
+check('leaderboard lists opted-in players only', shipped.status === 200 && !shipped.body.rows.some((r: { name: string }) => r.name === 'Bob'), JSON.stringify(shipped.body.rows));
+check('a non-number value is skipped, not an error', shipped.body.rows.length === 1 && shipped.body.rows[0].value === 900);
+const slimes = await json(await call('GET', '/leaderboard/slimes'));
+check('slimes board is sorted, most first', slimes.body.rows.map((r: { name: string }) => r.name).join() === 'Carol,Alice');
+const moon = await json(await call('GET', '/leaderboard/moon'));
+check('moon board is sorted, fewest days first', moon.body.rows.map((r: { name: string; value: number }) => `${r.name}:${r.value}`).join() === 'Carol:1,Alice:2', JSON.stringify(moon.body.rows));
+check('unknown board -> 404', (await call('GET', '/leaderboard/gold; DROP TABLE saves')).status === 404);
+
+// Gifts
+const gift = (tok: string, b: Record<string, unknown>) => call('POST', '/gifts', { token: tok, body: JSON.stringify(b) });
+check('POST /gifts without a token -> 401', (await call('POST', '/gifts', { body: '{}' })).status === 401);
+check('gift to a bad code -> 400', (await gift(bob, { to: 'nope', item: 'egg', qty: 1 })).status === 400);
+check('gift to an unknown code -> 404', (await gift(bob, { to: 'ZZZZZZZZ', item: 'egg', qty: 1 })).status === 404);
+check("tools can't be gifted -> 400", (await gift(bob, { to: meA.body.code, item: 'sword', qty: 1 })).status === 400);
+check('made-up items -> 400', (await gift(bob, { to: meA.body.code, item: 'diamond', qty: 1 })).status === 400);
+check('more than 10 -> 400', (await gift(bob, { to: meA.body.code, item: 'egg', qty: 11 })).status === 400);
+check('fractions -> 400', (await gift(bob, { to: meA.body.code, item: 'egg', qty: 1.5 })).status === 400);
+check("can't gift yourself -> 400", (await gift(alice, { to: meA.body.code, item: 'egg', qty: 1 })).status === 400);
+check('Bob sends Alice 3 eggs -> 201', (await gift(bob, { to: meA.body.code, item: 'egg', qty: 3, note: 'For your omelettes!' })).status === 201);
+const inbox = await json(await call('GET', '/gifts', { token: alice }));
+const g0 = inbox.body.gifts[0];
+check("Alice's mailbox has it, from Bob, with the note", inbox.body.gifts.length === 1 && g0.from === 'Bob' && g0.item === 'egg' && g0.qty === 3 && g0.note === 'For your omelettes!');
+check("Bob's mailbox is empty", (await json(await call('GET', '/gifts', { token: bob }))).body.gifts.length === 0);
+check("Bob can't claim Alice's gift -> 404", (await call('POST', `/gifts/${g0.id}/claim`, { token: bob })).status === 404);
+check('Alice claims it -> 200', (await call('POST', `/gifts/${g0.id}/claim`, { token: alice })).status === 200);
+check('claiming twice -> 404 (no duplicate items)', (await call('POST', `/gifts/${g0.id}/claim`, { token: alice })).status === 404);
+check('then the mailbox is empty', (await json(await call('GET', '/gifts', { token: alice }))).body.gifts.length === 0);
+check('a junk gift id -> 404', (await call('POST', '/gifts/1;2/claim', { token: alice })).status === 404);
+let lastStatus = 0;
+for (let i = 0; i < 10; i++) lastStatus = (await gift(bob, { to: meA.body.code, item: 'gel', qty: 1 })).status;
+check('the 11th gift in a day -> 429', lastStatus === 429);
+const corsPost = await call('OPTIONS', '/gifts', { origin: 'https://gonereng.github.io', headers: { 'access-control-request-method': 'POST', 'access-control-request-headers': 'authorization,content-type' } });
+check('CORS allows POST from the game site', (corsPost.headers.get('access-control-allow-methods') ?? '').includes('POST'));
+await pool.query("DELETE FROM gifts WHERE from_user LIKE 'user-%' OR to_user LIKE 'user-%'");
+await pool.query("DELETE FROM profiles WHERE user_id LIKE 'user-%'");
+for (const t of [alice, bob, carol]) await call('DELETE', '/save', { token: t });
+await pool.end();
 
 console.log(results.join('\n'));
 console.log(failed ? `\n${failed} FAILED` : `\nall ${results.length} checks passed`);

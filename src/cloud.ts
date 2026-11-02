@@ -113,3 +113,46 @@ export async function downloadSave(): Promise<Partial<GameState> | null | undefi
     return undefined;
   }
 }
+
+// ---------------------------------------------------------------- farm codes, visiting, leaderboards, gifts
+
+/** Shown as ABCD-EFGH. */
+export const formatCode = (code: string) => `${code.slice(0, 4)}-${code.slice(4)}`;
+
+async function api<T>(path: string, init: { method?: string; body?: unknown; auth?: boolean } = {}): Promise<{ ok: true; data: T } | { ok: false; error: string }> {
+  if (!SAVES_URL) return { ok: false, error: 'Online features are not set up.' };
+  const headers: Record<string, string> = {};
+  if (init.auth !== false) {
+    const token = await bearer();
+    if (!token) return { ok: false, error: 'Sign in on the title screen to use online features.' };
+    headers.authorization = `Bearer ${token}`;
+  }
+  if (init.body !== undefined) headers['content-type'] = 'application/json';
+  try {
+    const res = await fetch(`${SAVES_URL}${path}`, {
+      method: init.method ?? 'GET', headers, body: init.body === undefined ? undefined : JSON.stringify(init.body),
+    });
+    const data = await res.json().catch(() => ({})) as T & { error?: string };
+    return res.ok ? { ok: true, data } : { ok: false, error: data.error ?? `Something went wrong (${res.status}).` };
+  } catch {
+    return { ok: false, error: "Couldn't reach the server. Check your connection." };
+  }
+}
+
+export interface Profile { code: string; onBoards: boolean }
+export const getProfile = () => api<Profile>('/me');
+export const setOnBoards = (onBoards: boolean) => api<Profile>('/me', { method: 'PUT', body: { onBoards } });
+
+/** The farm part of someone's save, for a read-only visit. */
+export const fetchFarm = (code: string) =>
+  api<{ farm: Partial<GameState> }>(`/farm/${encodeURIComponent(code.replace(/[\s-]/g, ''))}`, { auth: false });
+
+export type BoardId = 'shipped' | 'slimes' | 'moon';
+export const fetchBoard = (board: BoardId) =>
+  api<{ title: string; rows: { name: string; value: number }[] }>(`/leaderboard/${board}`, { auth: false });
+
+export interface Gift { id: string; from: string; item: string; qty: number; note: string }
+export const sendGift = (to: string, item: string, qty: number, note = '') =>
+  api<{ ok: true }>('/gifts', { method: 'POST', body: { to, item, qty, note } });
+export const fetchGifts = () => api<{ gifts: Gift[] }>('/gifts');
+export const claimGift = (id: string) => api<{ ok: true }>(`/gifts/${id}/claim`, { method: 'POST' });
