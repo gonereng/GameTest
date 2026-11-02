@@ -43,6 +43,8 @@ export class Critter extends Phaser.Physics.Arcade.Sprite {
   private readonly region: Tile[];
   private readonly regionKeys: Set<string>;
   private path: { k: number; tiles: Tile[] } | null = null;
+  /** Which way it last walked, so it keeps facing that way when it stops. */
+  private facingRight = false;
 
   constructor(scene: Phaser.Scene, readonly kind: CritterKind, private readonly home: Tile, slot: number, mapId: string,
     walkable: (x: number, y: number) => boolean, private readonly tile = 16) {
@@ -134,7 +136,7 @@ export class Critter extends Phaser.Physics.Arcade.Sprite {
         const dir = dx !== 0 ? 'side' : dy > 0 ? 'down' : 'up';
         this.play(`${this.kind}_${dir}`, true);
         this.anims.resume();
-        if (dx !== 0) this.setFlipX(dx > 0);
+        if (dx !== 0) { this.facingRight = dx > 0; this.setFlipX(this.facingRight); }
       } else if (this.anims.isPlaying) {
         this.anims.pause();
       } else if (!this.anims.currentAnim) {
@@ -143,7 +145,10 @@ export class Critter extends Phaser.Physics.Arcade.Sprite {
       }
       return;
     }
+    // Pack sheets: cows' side views and chickens' walking frames face left, but chickens' resting frames
+    // (row 2, turned slightly away) face right. So the mirroring for the same direction differs by animation.
+    if (moving && dx !== 0) this.facingRight = dx > 0;
     this.play(moving ? `${this.kind}_walk` : `${this.kind}_idle`, true);
-    if (moving && dx !== 0) this.setFlipX(dx > 0);
+    this.setFlipX(moving ? this.facingRight : !this.facingRight);
   }
 }

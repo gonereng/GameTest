@@ -47,7 +47,7 @@ export class BootScene extends Phaser.Scene {
   }
 
   private createPackAnimations(): void {
-    // Farmer sheets: row 0 faces down, row 1 up, row 2 sideways (right).
+    // Farmer sheets: row 0 faces down, row 1 up, row 2 sideways (facing right; mirrored for left).
     ['down', 'up', 'side'].forEach((dir, row) => {
       this.anims.create({
         key: `farmer_${dir}`,

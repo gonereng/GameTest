@@ -595,9 +595,9 @@ export class WorldScene extends Phaser.Scene {
     this.placePlayer();
   }
 
-  /** The pack's sideways frames face left; the slime suit's face right. */
+  /** The farmer's sideways frames (Tiny Farm pack, row 2) and the slime suit's both face right, so mirror them for left. */
   private flipPlayer(): boolean {
-    return this.skin() === 'farmer' ? this.facing === 'right' : this.facing === 'left';
+    return this.facing === 'left';
   }
 
   private setIdleFrame(): void {
