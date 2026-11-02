@@ -1,9 +1,9 @@
-# Hollowbrook
+# The Wayfarer's Rest
 
 A small top-down 2D farming game with light combat, built with **Phaser 3 + TypeScript + Vite**.
 
-You've taken over Thistle Farm in the valley of Hollowbrook. Grow crops, sell them for gold, and
-clear the slimes out of Mossy Woods.
+You've inherited the Wayfarer's Rest, a crumbling inn at the crossroads of the Greenveil Realm. Grow crops, cook
+and brew for your guests, clear the slimes out of the Whispering Woods, and make the hearth neutral ground.
 
 ## Run it
 
@@ -67,15 +67,22 @@ and fullscreen. Tap to advance dialogue. In the shop, tap an item twice to buy i
 - **Places:** farm, house, Hollowbrook town (Mayor Orla, Pip), Bram's shop, Mossy Woods.
 - **Saving:** automatic on sleep, stored in the browser's localStorage.
 
-## The story: "The Moon Is in My Turnip"
+## The story: "The Wayfarer's Rest"
 
-At 10 PM on Day 1 the moon falls onto your farm. It's a talking turnip named Gerald. Talk to him and
-agree to help, and you have three days to get him back into the sky (until then, there's no rush). Follow the goal panel under the clock (top right). The full
-design, including every scene and both endings, is in [docs/STORY.md](docs/STORY.md).
+You inherit your grandfather's crumbling inn at the crossroads of the Greenveil Realm, where the Iron Crown and the
+Verdant Freeholds no longer speak. Restore the inn, feed your guests, and turn the hearth into neutral ground,
+across three acts: Barnaby and the first guests, Stew Night, the rival envoys and the Summit Feast, and the Grand
+Chancellor and the Festival of the Hearth. Along the way you build **Reputation** (better guests), **Hearth Warmth**
+(guests open up), and the **Inn Ledger** (travelers pay well for what they order). The full design is in
+[docs/STORY.md](docs/STORY.md).
 
-Spoiler-free tips: talk to everyone, keep some Slime Gel, and water the soil right next to Gerald.
+The earlier stories are switched off but kept: the moon quest (`MOON_STORY_ENABLED` in `src/quest.ts`,
+[docs/STORY_MOON.md](docs/STORY_MOON.md)) and Hazel's and Mortimer's quests (`SIDE_QUESTS_ENABLED` in
+`src/sidequests.ts`; they stay in town and chat).
 
-## Side quests (the two townhouses)
+## Side quests (the two townhouses), switched off
+
+*Switched off for now (`SIDE_QUESTS_ENABLED = false`); Hazel and Mortimer just chat. Kept for later:*
 
 Both houses next to Hollowbrook's plaza are open now. Each resident asks for help; you can say no and come back later.
 
@@ -158,8 +165,10 @@ src/
   critters.ts        Farm animals
   cat.ts             The farm cat and its dance
   friends.ts         Friendship: hearts, gift tastes and heart rewards
+  inn.ts             The story: The Wayfarer's Rest (acts, reputation, hearth warmth, ledger, travelers)
+  sidequests.ts      Hazel's and Mortimer's quests (switched off)
   audio.ts           Sound effects and music (Web Audio)
-  quest.ts           The story: steps, dialogue, puzzles, Gerald, the Turnipult, the finale
+  quest.ts           The moon story (switched off): steps, dialogue, puzzles, Gerald, the Turnipult
   boss.ts            Lord Gloopington III
   bus.ts             Events between the world and the UI
   scenes/

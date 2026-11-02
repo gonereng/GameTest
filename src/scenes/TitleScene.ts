@@ -44,11 +44,11 @@ export class TitleScene extends Phaser.Scene {
     }
     this.add.rectangle(0, 0, GAME_W, GAME_H, 0x0a0805, 0.35).setOrigin(0);
 
-    this.add.text(GAME_W / 2, 150, 'HOLLOWBROOK', {
-      fontFamily: 'monospace', fontSize: '76px', fontStyle: 'bold', color: '#f4e4b0',
+    this.add.text(GAME_W / 2, 150, "THE WAYFARER'S REST", {
+      fontFamily: 'monospace', fontSize: '60px', fontStyle: 'bold', color: '#f4e4b0',
       stroke: '#3a2410', strokeThickness: 12,
     }).setOrigin(0.5).setShadow(0, 6, '#000', 0, true, true);
-    this.add.text(GAME_W / 2, 220, 'a small farming & slime-bonking adventure', {
+    this.add.text(GAME_W / 2, 220, 'a cozy farming & tavern tale at the crossroads of Greenveil', {
       fontFamily: 'monospace', fontSize: '20px', color: '#fff', stroke: '#2a1a0a', strokeThickness: 5,
     }).setOrigin(0.5);
 

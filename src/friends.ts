@@ -59,7 +59,7 @@ export const REWARDS: Record<FriendId, Reward[]> = {
   orla: [
     {
       hearts: 2, summary: 'Moon Stew recipe', give: learn('stew'),
-      lines: ['You have been a great help to Hollowbrook, {name}.', 'Here is the town\'s oldest recipe: Moon Stew. Very nourishing.', '(You learned to cook Moon Stew. Use the stove in your house.)'],
+      lines: ['You have been a great help to the crossroads, {name}.', 'Here is the town\'s oldest recipe: Moon Stew. Very nourishing.', '(You learned to cook Moon Stew. Use the stove in your house.)'],
     },
     {
       hearts: 4, summary: "500g Farmer's Grant", give: () => { state.gold += 500; },

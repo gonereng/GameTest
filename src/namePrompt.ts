@@ -22,7 +22,7 @@ export function askName(keyboard: { enabled: boolean } | null, suggestion = ''):
       <form class="name-box" autocomplete="off">
         <label for="player-name">What's your name, farmer?</label>
         <input id="player-name" type="text" maxlength="${NAME_MAX}" spellcheck="false" autocapitalize="words" enterkeyhint="go" />
-        <p class="name-hint">Up to ${NAME_MAX} letters. The people of Hollowbrook will call you this.</p>
+        <p class="name-hint">Up to ${NAME_MAX} letters. The people of Greenveil will call you this.</p>
         <div class="name-buttons">
           <button type="button" class="name-back">Back</button>
           <button type="submit" class="name-ok">Start farming</button>

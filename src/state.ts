@@ -68,6 +68,16 @@ export interface GameState {
   upgrades: Record<ToolId, number>;
   /** Side quests from the townsfolk (see sidequests.ts): step numbers, plus Moo for Mayor's progress. */
   side: { hazel: number; mortimer: number; endorsed: string[]; pledges: string[]; debateDay?: number };
+  /** The Wayfarer's Rest (src/inn.ts): story step, reputation, hearth warmth, tavern income, and who's been helped. */
+  inn: {
+    step: number; rep: number; warmth: number; earned: number;
+    /** Story requests fulfilled and conversations had (by key). */
+    done: string[];
+    /** Names on the petition against the Chancellor (Act III). */
+    signed: string[];
+    /** Today's travelers in the common room and what they ordered. */
+    travelers: { name: string; order: ItemId }[];
+  };
 }
 
 export const HOTBAR_SIZE = 10;
@@ -111,6 +121,7 @@ export function newGame(): GameState {
     buffs: {},
     upgrades: { hoe: 0, can: 0, sword: 0 },
     side: { hazel: 0, mortimer: 0, endorsed: [], pledges: [] },
+    inn: { step: 0, rep: 0, warmth: 0, earned: 0, done: [], signed: [], travelers: [] },
   };
 }
 

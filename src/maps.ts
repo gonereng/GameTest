@@ -3,6 +3,13 @@ import { mulberry32 } from './rng';
 import { state } from './state';
 
 const flag = (f: string) => !!state.quest.flags[f];
+/** The Wayfarer's Rest story step (see inn.ts for what each number means). */
+const innStep = () => state.inn.step;
+
+/** A guest of the Wayfarer's Rest, shown in the common room while `when` says so. Their talk is in inn.ts. */
+function guest(id: string, name: string, x: number, y: number, facing: Facing, when: () => boolean): NpcDef {
+  return { id, name, sprite: id, x, y, facing, show: when, intro: ['...'], chat: [['...']] };
+}
 
 export type MapId = 'farm' | 'house' | 'town' | 'shop' | 'forest' | 'burrow' | 'deep' | 'hazel' | 'mortimer';
 export type Facing = 'down' | 'up' | 'left' | 'right';
@@ -46,7 +53,7 @@ export interface Prop {
 export type CritterKind = 'chicken_red' | 'chicken_blonde' | 'chick' | 'cow' | 'cow_male';
 export interface Critter { kind: CritterKind; x: number; y: number }
 
-export type InteractKind = 'bed' | 'bin' | 'shop' | 'sign' | 'locked' | 'stove';
+export type InteractKind = 'bed' | 'bin' | 'shop' | 'sign' | 'locked' | 'stove' | 'ledger';
 
 export interface Interactable extends Point {
   kind: InteractKind;
@@ -187,7 +194,7 @@ function buildFarm(): MapDef {
   b.scatter(T.BUSH, 8, rnd, free);
   b.scatter(T.FLOWER, 45, rnd, (x, y) => b.get(x, y) === T.GRASS);
   return finish(b, {
-    id: 'farm', name: 'Thistle Farm', indoor: false, farmable: true,
+    id: 'farm', name: "The Wayfarer's Rest", indoor: false, farmable: true,
     props,
     critters: [
       { kind: 'chicken_red', x: 11, y: 8 }, { kind: 'chicken_blonde', x: 13, y: 9 },
@@ -199,10 +206,14 @@ function buildFarm(): MapDef {
       { x: 39, y: 14, w: 1, h: 2, to: 'town', tx: 2, ty: 14, facing: 'right' },
       { x: 19, y: 29, w: 2, h: 1, to: 'forest', tx: 19, ty: 2, facing: 'down' },
     ],
-    npcs: [],
+    npcs: [
+      guest('barnaby', 'Barnaby', 5, 6, 'right', () => true),
+      // Act III: Grand Chancellor Vexmoor and his inspection regiment, at your door.
+      guest('chancellor', 'Grand Chancellor Vexmoor', 8, 8, 'left', () => innStep() === 9),
+    ],
     interact: [
       { x: 8, y: 6, kind: 'bin' },
-      { x: 35, y: 13, kind: 'sign', lines: ['East: Hollowbrook Town.', 'South: Mossy Woods. Mind the slimes.'] },
+      { x: 35, y: 13, kind: 'sign', lines: ['East: the Greenveil Crossroads.', 'South: the Whispering Woods. Mind the slimes.'] },
     ],
     slimes: 0,
     forage: [],
@@ -227,12 +238,28 @@ function buildHouse(): MapDef {
     on(F, 'plant_red', 6, 9),
   ];
   return finish(b, {
-    id: 'house', name: 'Your House', indoor: true, farmable: false,
+    id: 'house', name: "The Wayfarer's Rest", indoor: true, farmable: false,
     props,
     spawn: { x: 9, y: 9 },
     warps: [{ x: 9, y: 10, w: 1, h: 1, to: 'farm', tx: 6, ty: 6, facing: 'down' }],
-    npcs: [],
-    interact: [{ x: 12, y: 4, kind: 'bed' }, { x: 12, y: 5, kind: 'bed' }, { x: 7, y: 4, kind: 'stove' }, { x: 8, y: 4, kind: 'stove' }],
+    // The Wayfarer's Rest's common room fills up as the story goes on (inn.ts has the step numbers).
+    npcs: [
+      guest('pell', 'Pell', 6, 7, 'right', () => innStep() >= 2),
+      guest('maeve', 'Maeve', 13, 7, 'left', () => innStep() >= 2),
+      guest('finn', 'Finn', 6, 5, 'right', () => innStep() >= 2),
+      guest('corvin', 'Corvin', 10, 5, 'down', () => innStep() >= 4),
+      guest('jorah', 'Jorah', 9, 5, 'down', () => innStep() >= 5),
+      guest('raymond', 'Sir Raymond', 11, 8, 'left', () => innStep() >= 5),
+      guest('isla', 'Isla', 13, 6, 'left', () => innStep() >= 5),
+      guest('traveler0', 'Traveler', 6, 8, 'right', () => state.inn.travelers.length > 0),
+      guest('traveler1', 'Traveler', 11, 5, 'down', () => state.inn.travelers.length > 1),
+    ],
+    interact: [
+      { x: 12, y: 4, kind: 'bed' }, { x: 12, y: 5, kind: 'bed' },
+      // The hearth: cooking and brewing, and the story's big nights.
+      { x: 7, y: 4, kind: 'stove' }, { x: 8, y: 4, kind: 'stove' },
+      { x: 7, y: 7, kind: 'ledger' }, { x: 8, y: 7, kind: 'ledger' },
+    ],
     slimes: 0,
     forage: [],
   });
@@ -265,7 +292,7 @@ function buildTown(): MapDef {
   b.scatter(T.BUSH, 6, rnd, free);
   b.scatter(T.FLOWER, 50, rnd, (x, y) => b.get(x, y) === T.GRASS);
   return finish(b, {
-    id: 'town', name: 'Hollowbrook', indoor: false, farmable: false,
+    id: 'town', name: 'Greenveil Crossroads', indoor: false, farmable: false,
     props,
     critters: [
       // A few chickens scratching around the garden, and two cows grazing on the east lawn.
@@ -285,9 +312,9 @@ function buildTown(): MapDef {
         id: 'orla', name: 'Mayor Orla', sprite: 'orla', x: 17, y: 16, facing: 'down',
         show: () => !flag('unmasked') || (flag('launched') && flag('pardoned')),
         intro: [
-          'Oh! You must be {name}, the new keeper of Thistle Farm.',
-          "I'm Orla, mayor of Hollowbrook. Welcome to the valley!",
-          'Fair warning: slimes keep creeping out of Mossy Woods, just south of your farm.',
+          "Oh! You must be {name}, the new keeper of the Wayfarer's Rest.",
+          "I'm Orla, mayor of the Greenveil Crossroads. What's left of it. Welcome!",
+          'Fair warning: slimes keep creeping out of the Whispering Woods, just south of your inn.',
           'If you thin them out, the whole town will thank you.',
         ],
         chat: [
@@ -319,7 +346,7 @@ function buildTown(): MapDef {
     ],
     interact: [
       { x: 22, y: 7, kind: 'sign', lines: ["Bram's Seeds & Supplies", 'Open every day, rain or slime.'] },
-      { x: 3, y: 13, kind: 'sign', lines: ['Welcome to Hollowbrook!', 'Population: 23 and a few slimes.'] },
+      { x: 3, y: 13, kind: 'sign', lines: ['Welcome to the Greenveil Crossroads!', 'Population: 23 and a few slimes. (It used to be 2,300.)'] },
     ],
     slimes: 0,
     forage: [],
@@ -380,7 +407,7 @@ function buildForest(): MapDef {
   const dark: Record<number, number> = { [T.TREE]: T.DARK_TREE, [T.BUSH]: T.DARK_BUSH, [T.ROCK]: T.DARK_ROCK };
   b.t = b.t.map(row => row.map(t => dark[t] ?? t));
   return finish(b, {
-    id: 'forest', name: 'Mossy Woods', indoor: false, farmable: false,
+    id: 'forest', name: 'Whispering Woods', indoor: false, farmable: false,
     spawn,
     warps: [
       { x: 19, y: 0, w: 2, h: 1, to: 'farm', tx: 19, ty: 27, facing: 'up' },
@@ -389,7 +416,7 @@ function buildForest(): MapDef {
     ],
     npcs: [],
     interact: [
-      { x: 22, y: 3, kind: 'sign', lines: ['Mossy Woods.', 'Berries and mushrooms grow back every morning. So do the slimes.'] },
+      { x: 22, y: 3, kind: 'sign', lines: ['The Whispering Woods.', 'Berries and mushrooms grow back every morning. So do the slimes.'] },
       {
         x: 3, y: 12, kind: 'sign',
         lines: ['West: The Deep Woods.', 'Path overgrown. It will be cleared once 15 slimes have been dealt with. - Mayor Orla'],

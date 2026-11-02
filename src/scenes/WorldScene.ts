@@ -26,6 +26,7 @@ import { consumeTouch, touch } from '../touch';
 import { Critter, CRITTER_LINES } from '../critters';
 import { Cat } from '../cat';
 import { SideQuests, cowHasHat, mayorClementine, sideGoals } from '../sidequests';
+import { Inn, innGoal } from '../inn';
 import { CHARACTERS } from '../textures';
 
 type Body = Phaser.Physics.Arcade.Body;
@@ -104,6 +105,8 @@ export class WorldScene extends Phaser.Scene {
   lockedUntil = 0;
   private story!: Story;
   private side!: SideQuests;
+  /** The Wayfarer's Rest: the game's story now (inn.ts). */
+  private inn!: Inn;
   private keys!: Record<KeyName, Phaser.Input.Keyboard.Key>;
   private facing: Facing = 'down';
   private slimes: Slime[] = [];
@@ -193,6 +196,7 @@ export class WorldScene extends Phaser.Scene {
     this.story.create();
     this.side = new SideQuests(this);
     this.side.create();
+    this.inn = new Inn(this);
     // Clementine keeps her campaign hat once she has it.
     if (this.def.id === 'farm' && cowHasHat()) this.critters.find(c => c.kind === 'cow')?.wearHat();
 
@@ -239,6 +243,7 @@ export class WorldScene extends Phaser.Scene {
       if (state.weather === 'rain') this.time.delayedCall(700, () => ui.toast("It's raining! Your crops are watered today."));
       this.story.onNewDay();
       this.side.onNewDay();
+      this.inn.onNewDay();
     }
   }
 
@@ -259,7 +264,7 @@ export class WorldScene extends Phaser.Scene {
       state.quest.flags.deepOpen = true;
       news.push(
         'A note was slipped under your door:',
-        `"${DEEP_UNLOCK_SLIMES} slimes! The overgrown path on the west side of Mossy Woods has been cleared. The Deep Woods lie beyond. Tougher slimes, better loot. Do be careful. - Mayor Orla"`,
+        `"${DEEP_UNLOCK_SLIMES} slimes! The overgrown path on the west side of the Whispering Woods has been cleared. The Deep Woods lie beyond. Tougher slimes, better loot. Do be careful. - Mayor Orla"`,
       );
     }
     news.push(...await this.checkMail());
@@ -395,11 +400,13 @@ export class WorldScene extends Phaser.Scene {
   private intro(): void {
     ui.dialogue({
       lines: [
-        'Welcome to Thistle Farm, {name}, in the quiet valley of Hollowbrook.',
-        'The last farmer packed up years ago, when slimes started creeping out of Mossy Woods.',
-        "Now the land is yours. Grow crops, earn some gold, and teach those slimes some manners.",
+        'The Greenveil Realm. Years ago, the crossroads below this hill were the busiest in the land: merchants, scholars, monster-hunters and nobles, all under one roof.',
+        "Then the Iron Crown in the north and the Verdant Freeholds in the south stopped speaking. The roads turned dangerous. The travelers stopped coming.",
+        "Your grandfather kept the Wayfarer's Rest open to the very end. Now it's yours, {name}: a leaking roof, a field choked with briars, and a mountain of debt.",
+        'Restore the inn. Grow food for your guests. Make this hearth a place where enemies sit down and talk.',
         ...CONTROLS,
-        'Tip: till grass with the Hoe, plant Strawberry Seeds, and water them. Ship crops in the bin outside.',
+        'Tip: till grass with the Hoe, plant Strawberry Seeds, and water them. Cook and brew at the hearth.',
+        'And an old man is waiting on the porch outside. He looks like he has been waiting for quite a while.',
       ],
     });
   }
@@ -820,6 +827,7 @@ export class WorldScene extends Phaser.Scene {
   private talk(n: Npc): void {
     const dx = this.player.x - n.sprite.x, dy = this.player.y - n.sprite.y;
     this.faceNpc(n, Math.abs(dx) > Math.abs(dy) ? (dx < 0 ? 'left' : 'right') : dy < 0 ? 'up' : 'down');
+    if (this.inn.talk(n.def)) return;
     if (this.side.talk(n.def)) return;
     if (this.story.talk(n.def, n.sprite)) return;
     if (!n.def.chat.length) return;
@@ -870,11 +878,14 @@ export class WorldScene extends Phaser.Scene {
   }
 
   /** The stove at home: pick a recipe you know and have the ingredients for. */
+  /** The cooking menu (also offered by the inn's big nights when you'd rather just cook). */
+  openCooking(): void { this.cook(); }
+
   private cook(): void {
     const known = RECIPES.filter(r => state.recipes.includes(r.dish));
     const has = (r: (typeof RECIPES)[number]) => r.needs.every(([id, n]) => countItem(id) >= n);
     const label = (r: (typeof RECIPES)[number]) =>
-      `${has(r) ? '' : '(missing) '}${ITEMS[r.dish].name}: ${r.needs.map(([id, n]) => `${n > 1 ? `${n} ` : ''}${ITEMS[id].name}`).join(' + ')}`;
+      `${has(r) ? '' : '(missing) '}${ITEMS[r.dish].name}: ${r.needs.map(([id, n]) => (n > 1 ? countOf(id, n) : ITEMS[id].name)).join(' + ')}`;
     const missing = RECIPES.length - known.length;
     ui.dialogue({
       lines: [`The stove. What shall we cook?${missing ? ` (${missing} more recipe${missing > 1 ? 's' : ''} to learn from friends in town.)` : ''}`],
@@ -916,6 +927,7 @@ export class WorldScene extends Phaser.Scene {
         break;
       case 'shop': {
         chatted('bram');
+        if (this.inn.shopCounter()) break;
         if (this.side.shopCounter()) break;
         const greeting = this.story.shopGreeting()
           ?? [state.met.includes('bram') ? 'Back again, {name}? Have a look.' : "Welcome to Bram's, {name}! Seeds, snacks, and the odd trinket. Have a look."];
@@ -924,7 +936,11 @@ export class WorldScene extends Phaser.Scene {
         break;
       }
       case 'stove':
+        if (this.inn.hearth()) break;
         this.cook();
+        break;
+      case 'ledger':
+        this.inn.ledger();
         break;
       case 'sign':
         ui.dialogue({ lines: it.lines ?? [] });
@@ -1119,7 +1135,7 @@ export class WorldScene extends Phaser.Scene {
     ui.dialogue({
       speaker: 'Menu',
       lines: [`{name}  -  ${dateLabel(state.day)}, Year ${yearOf(state.day)} (day ${state.day}), ${formatTime(state.minutes)}.  Gold: ${state.gold}g.  Slimes defeated: ${state.slimes}.` +
-        [goalText(), ...sideGoals()].filter(Boolean).map(g => `\nGoal: ${g}`).join('')],
+        [innGoal(), goalText(), ...sideGoals()].filter(Boolean).map(g => `\nGoal: ${g}`).join('')],
       choices: [
         { label: 'Resume' },
         { label: 'Wait 1 hour', action: () => this.skipTime(60, false) },
