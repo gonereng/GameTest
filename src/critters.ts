@@ -45,6 +45,24 @@ export class Critter extends Phaser.Physics.Arcade.Sprite {
   private path: { k: number; tiles: Tile[] } | null = null;
   /** Which way it last walked, so it keeps facing that way when it stops. */
   private facingRight = false;
+  /** A cow's view (side, down, up), for placing a hat on its head. */
+  private view: 'side' | 'down' | 'up' = 'side';
+  private hat?: Phaser.GameObjects.Image;
+
+  /** Mayor Clementine's Tiny Top Hat. Follows her head as she walks and turns. */
+  wearHat(): void {
+    this.hat ??= this.scene.add.image(this.x, this.y, 'hat_worn').setOrigin(0.5, 1);
+    this.placeHat();
+  }
+
+  private placeHat(): void {
+    if (!this.hat) return;
+    // Cow frames are 32x32 around the sprite's centre: the head is at the front in the side view (front = left
+    // unless mirrored), and in the middle at the top when facing you or walking away.
+    const dx = this.view === 'side' ? (this.flipX ? 9 : -9) : 0;
+    const dy = this.view === 'side' ? -1 : this.view === 'down' ? -3 : -4;
+    this.hat.setPosition(Math.round(this.x + dx), Math.round(this.y + dy)).setDepth(this.depth + 1);
+  }
 
   constructor(scene: Phaser.Scene, readonly kind: CritterKind, private readonly home: Tile, slot: number, mapId: string,
     walkable: (x: number, y: number) => boolean, private readonly tile = 16) {
@@ -128,12 +146,14 @@ export class Critter extends Phaser.Physics.Arcade.Sprite {
     (this.body as Body).updateFromGameObject();
     this.setDepth((this.body as Body).bottom);
     this.animate(moving, b.x - a.x, b.y - a.y);
+    this.placeHat();
   }
 
   private animate(moving: boolean, dx: number, dy: number): void {
     if (isCow(this.kind)) {
       if (moving) {
         const dir = dx !== 0 ? 'side' : dy > 0 ? 'down' : 'up';
+        this.view = dir;
         this.play(`${this.kind}_${dir}`, true);
         this.anims.resume();
         if (dx !== 0) { this.facingRight = dx > 0; this.setFlipX(this.facingRight); }

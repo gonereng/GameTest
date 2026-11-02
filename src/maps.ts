@@ -4,7 +4,7 @@ import { state } from './state';
 
 const flag = (f: string) => !!state.quest.flags[f];
 
-export type MapId = 'farm' | 'house' | 'town' | 'shop' | 'forest' | 'burrow' | 'deep';
+export type MapId = 'farm' | 'house' | 'town' | 'shop' | 'forest' | 'burrow' | 'deep' | 'hazel' | 'mortimer';
 export type Facing = 'down' | 'up' | 'left' | 'right';
 
 export interface Point { x: number; y: number }
@@ -248,9 +248,9 @@ function buildTown(): MapDef {
   const props: Prop[] = [];
   house(b, props, 'shop', 18, 6, 'open'); // Bram's shop, door at (20,6)
   b.rect(20, 7, 1, 2, T.PATH);
-  house(b, props, 'home', 3, 9, 'locked'); // door (6,9)
+  house(b, props, 'home', 3, 9, 'open'); // Hazel's house, door (6,9)
   b.rect(6, 10, 1, 4, T.PATH);
-  house(b, props, 'home', 29, 9, 'locked'); // door (32,9)
+  house(b, props, 'home', 29, 9, 'open'); // Mortimer's house, door (32,9)
   b.rect(32, 10, 1, 4, T.PATH);
   b.rect(4, 19, 7, 1, T.FENCE);
   b.rect(4, 23, 7, 1, T.FENCE);
@@ -277,6 +277,8 @@ function buildTown(): MapDef {
     warps: [
       { x: 0, y: 14, w: 1, h: 2, to: 'farm', tx: 37, ty: 14, facing: 'left' },
       { x: 20, y: 6, w: 1, h: 1, to: 'shop', tx: 9, ty: 9, facing: 'up' },
+      { x: 6, y: 9, w: 1, h: 1, to: 'hazel', tx: 9, ty: 9, facing: 'up' },
+      { x: 32, y: 9, w: 1, h: 1, to: 'mortimer', tx: 9, ty: 9, facing: 'up' },
     ],
     npcs: [
       {
@@ -318,8 +320,6 @@ function buildTown(): MapDef {
     interact: [
       { x: 22, y: 7, kind: 'sign', lines: ["Bram's Seeds & Supplies", 'Open every day, rain or slime.'] },
       { x: 3, y: 13, kind: 'sign', lines: ['Welcome to Hollowbrook!', 'Population: 23 and a few slimes.'] },
-      { x: 6, y: 9, kind: 'locked' },
-      { x: 32, y: 9, kind: 'locked' },
     ],
     slimes: 0,
     forage: [],
@@ -400,6 +400,70 @@ function buildForest(): MapDef {
   });
 }
 
+/** A furnished townhouse interior (20x14, door at (9,10)) with one resident. */
+function buildTownhouse(id: 'hazel' | 'mortimer', name: string, resident: NpcDef, back: Point): MapDef {
+  const b = new Builder(20, 14, T.VOID);
+  b.room();
+  const F = 'tf_interior';
+  const props: Prop[] = [
+    { tex: F, frame: 'rug', x: 10.5 * TILE_PX, y: 10 * TILE_PX - 2, depth: 1 },
+    { tex: F, frame: 'window', x: 8 * TILE_PX + 8, y: 3 * TILE_PX + 14, depth: 1 },
+    { tex: F, frame: 'picture', x: 11 * TILE_PX + 12, y: 3 * TILE_PX + 12, depth: 1 },
+  ];
+  if (id === 'hazel') {
+    // A baker's house: the big oven (fireplace), a table for rolling dough, plants.
+    for (const [x, y] of [[6, 4], [7, 4], [12, 4], [12, 5], [7, 7], [8, 7], [13, 9]]) b.set(x, y, T.BLOCK_FLOOR);
+    props.push(
+      { tex: F, frame: 'fireplace', x: 7 * TILE_PX, y: 5 * TILE_PX },
+      on(F, 'bed', 12, 5),
+      { tex: F, frame: 'table', x: 8 * TILE_PX, y: 8 * TILE_PX + 2 },
+      on(F, 'plant_red', 13, 9),
+      { tex: F, frame: 'clock', x: 13.5 * TILE_PX, y: 3 * TILE_PX + 12, depth: 1 },
+    );
+  } else {
+    // A campaign office that is also a bedroom: desk, drawers, a tired plant.
+    for (const [x, y] of [[6, 4], [6, 5], [12, 7], [13, 7], [13, 4], [6, 9]]) b.set(x, y, T.BLOCK_FLOOR);
+    props.push(
+      on(F, 'bed', 6, 5),
+      { tex: F, frame: 'table', x: 13 * TILE_PX, y: 8 * TILE_PX + 2 },
+      on(F, 'drawer', 13, 4),
+      on(F, 'plant_tree', 6, 9),
+    );
+  }
+  return finish(b, {
+    id, name, indoor: true, farmable: false, props,
+    spawn: { x: 9, y: 9 },
+    warps: [{ x: 9, y: 10, w: 1, h: 1, to: 'town', tx: back.x, ty: back.y, facing: 'down' }],
+    npcs: [resident],
+    interact: id === 'mortimer'
+      ? [{ x: 13, y: 7, kind: 'sign', lines: ['A campaign poster, still wet:', '"CLEMENTINE FOR MAYOR. SHE HAS FOUR LEGS. THAT IS TWO MORE THAN THE LAST ONE."'] }]
+      : [{ x: 7, y: 4, kind: 'sign', lines: ["Hazel's oven. It's warm, and smells like a hundred years of cakes."] }],
+    slimes: 0,
+    forage: [],
+  });
+}
+
+function buildHazel(): MapDef {
+  return buildTownhouse('hazel', "Hazel's House", {
+    id: 'hazel', name: 'Hazel', sprite: 'hazel', x: 10, y: 6, facing: 'down',
+    intro: [], chat: [
+      ['The secret to a good cake is eggs. And butter. And not telling anyone the secret.'],
+      ['I baked for this whole valley for fifty years. My arms are mostly flour now.'],
+      ['Mortimer next door is up to something again. He has that look. The election look.'],
+    ],
+  }, { x: 6, y: 10 });
+}
+
+function buildMortimer(): MapDef {
+  return buildTownhouse('mortimer', "Mortimer's House", {
+    id: 'mortimer', name: 'Mortimer', sprite: 'mortimer', x: 9, y: 6, facing: 'down',
+    intro: [], chat: [
+      ['Politics is just farming with more yelling.'],
+      ['I once ran a campaign for a scarecrow. He came second. Out of one.'],
+    ],
+  }, { x: 32, y: 10 });
+}
+
 /** The overgrown tiles in Mossy Woods that open the way to the Deep Woods. */
 export const DEEP_PATH: Point[] = [{ x: 0, y: 14 }, { x: 1, y: 14 }, { x: 0, y: 15 }, { x: 1, y: 15 }];
 export const DEEP_UNLOCK_SLIMES = 15;
@@ -477,6 +541,7 @@ function buildBurrow(): MapDef {
 
 const builders: Record<MapId, () => MapDef> = {
   farm: buildFarm, house: buildHouse, town: buildTown, shop: buildShop, forest: buildForest, burrow: buildBurrow, deep: buildDeep,
+  hazel: buildHazel, mortimer: buildMortimer,
 };
 const cache = new Map<MapId, MapDef>();
 

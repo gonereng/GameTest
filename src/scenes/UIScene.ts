@@ -4,6 +4,7 @@ import {
   BACKPACK_SIZE, addItem, countItem, dateLabel, formatTime, inSeason, itemName, removeItem, runtime, seasonOf, state, type ToolId,
 } from '../state';
 import { shopDiscount } from '../friends';
+import { MORT, sideGoals } from '../sidequests';
 import { sfx } from '../audio';
 import { bus, modal, type DialogueOpts } from '../bus';
 import { TouchControls, isTouchDevice, touch } from '../touch';
@@ -35,7 +36,7 @@ const UPGRADES: ShopEntry[] = [
 function baseShop(): ShopEntry[] {
   const seeds = (Object.values(CROPS).filter(c => inSeason(c.id)).map(c => c.seed));
   return [
-    ...([...seeds, 'bread', 'sprinkler'] as ItemId[]).map(id => ({
+    ...([...seeds, 'bread', 'sprinkler', ...(state.side.mortimer === MORT.HAT && !countItem('tophat') ? ['tophat'] : [])] as ItemId[]).map(id => ({
       id, name: ITEMS[id].name, price: ITEMS[id].price!, desc: ITEMS[id].desc,
       needs: ITEMS[id].gel ? [['gel', ITEMS[id].gel!] as [ItemId, number]] : undefined,
     })),
@@ -319,7 +320,9 @@ export class UIScene extends Phaser.Scene {
   private updateGoal(): void {
     const goal = runtime.visit ? `Visiting ${runtime.visit.name}'s farm. Look, don't touch!` : goalText();
     const deadline = runtime.visit ? 'Esc: go home' : deadlineText();
-    const text = goal ? `${goal}${deadline ? `\n${deadline}` : ''}` : '';
+    // The moon story first (with its deadline), then any side quests from the townsfolk.
+    const parts = [goal ? `${goal}${deadline ? `\n${deadline}` : ''}` : '', ...(runtime.visit ? [] : sideGoals())].filter(Boolean);
+    const text = parts.join('\n\n');
     if (text === this.lastGoal) return;
     this.lastGoal = text;
     this.goalText.setText(text);

@@ -75,6 +75,24 @@ design, including every scene and both endings, is in [docs/STORY.md](docs/STORY
 
 Spoiler-free tips: talk to everyone, keep some Slime Gel, and water the soil right next to Gerald.
 
+## Side quests (the two townhouses)
+
+Both houses next to Hollowbrook's plaza are open now. Each resident asks for help; you can say no and come back later.
+
+- **Hazel's Harvest Cake** (west house): Hazel, a retired baker, wants to bake the legendary Harvest Cake one last
+  time. Bring her **10 Eggs**. Reward: 300g and a Harvest Cake (+100 energy, +3 hearts, or sell it for 500g).
+- **Moo for Mayor** (east house): Mortimer Quill, a campaign manager who has never won anything, decides the
+  town's next mayor should be **Clementine, the cow on your farm**.
+  1. *Endorsements:* Pip (bring 1 Milk), Bram (2 Slime Cores for the "campaign budget"), and pledges from
+     5 chickens (talk to them, in town or on the farm).
+  2. *The look:* buy a Tiny Top Hat from Bram and put it on Clementine. She keeps wearing it.
+  3. *Debate night:* 8 PM to midnight in the town plaza, against Sir Wobblesworth (a slime in a hat). Talk to
+     Mortimer and answer for Clementine: one Moo = yes, two Moos = no, chewing = "a detailed five-point plan".
+     Get 2 of 3 right; lose, and try again the next night.
+  4. *Election morning:* results, 800g, and Mayor Clementine gives 2 Milk a day from then on.
+
+Side quests show in the goal panel under the moon story. Code: `src/sidequests.ts`; the houses are in `src/maps.ts`.
+
 ## Accounts and cloud saves (Neon)
 
 Players can create an account and keep their farm in the cloud, so they can continue on any device.

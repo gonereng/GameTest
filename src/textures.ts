@@ -462,6 +462,8 @@ export const CHARACTERS: Record<string, Record<string, string>> = {
   orla: { h: '#d8d8d8', c: '#8a3fa0', p: '#5a3a6a' },
   pip: { h: '#e8b040', c: '#e05a3a', p: '#3a5a8a' },
   bram: { h: '#3a2a1a', c: '#3f8a4a', p: '#6a5a3a' },
+  hazel: { h: '#c8c4d0', c: '#e07a9a', p: '#8a4a5a' },
+  mortimer: { h: '#1a1a22', c: '#7a2a2a', p: '#2a2a32' },
 };
 
 function makeCharacter(scene: Phaser.Scene, key: string, colors: Record<string, string>) {
@@ -593,6 +595,21 @@ const ITEM_DRAW: Partial<Record<ItemId, (c: Ctx, ox: number) => void>> = {
     disc(c, ox, 0, 8, 11, 5.8, '#d89048', (_x, y) => y >= 6 && y <= 13);
     disc(c, ox, 0, 8, 10, 4, '#e8b060', (_x, y) => y >= 6 && y <= 9);
     for (const x of [5, 8, 11]) fill(c, ox + x, 7, 1, 2, '#a86a30');
+  },
+  tophat(c, ox) {
+    fill(c, ox + 2, 12, 12, 2, '#1a1a22');
+    fill(c, ox + 4, 3, 8, 9, '#2a2a36');
+    fill(c, ox + 5, 3, 2, 9, '#3a3a4a');
+    fill(c, ox + 4, 9, 8, 2, '#c83a3a');
+    fill(c, ox + 4, 2, 8, 1, '#1a1a22');
+  },
+  cake(c, ox) {
+    fill(c, ox + 2, 8, 12, 6, '#c88a4a');
+    fill(c, ox + 2, 10, 12, 1, '#f4e4c8');
+    fill(c, ox + 2, 7, 12, 2, '#fff4f0');
+    fill(c, ox + 3, 5, 10, 2, '#fff4f0');
+    for (const x of [4, 7, 10]) { px(c, ox + x, 4, '#e04a5a'); px(c, ox + x + 1, 4, '#e04a5a'); }
+    fill(c, ox + 7, 1, 1, 3, '#f4e4b0'); px(c, ox + 7, 0, '#ffb040');
   },
   milk(c, ox) {
     fill(c, ox + 6, 1, 4, 2, '#c84a3a');
@@ -789,6 +806,17 @@ const CAT_BACK = [
 ];
 const CAT_PAL = { k: '#2a2a32', g: '#9a9aa8', d: '#7a7a88', w: '#f4f4f8', p: '#f0a0b0', n: '#e07090' };
 
+/** A tiny top hat to wear: 9x7, drawn from the bottom of its brim. */
+function makeWornHat(scene: Phaser.Scene): void {
+  const t = scene.textures.createCanvas('hat_worn', 9, 7)!;
+  const c = t.getContext();
+  fill(c, 0, 5, 9, 2, '#1a1a22');
+  fill(c, 2, 0, 5, 5, '#2a2a36');
+  fill(c, 2, 0, 1, 5, '#3a3a4a');
+  fill(c, 2, 3, 5, 1, '#c83a3a');
+  t.refresh();
+}
+
 function makeCat(scene: Phaser.Scene): void {
   const t = scene.textures.createCanvas('cat', S * 3, S)!;
   const c = t.getContext();
@@ -824,6 +852,7 @@ export function generateTextures(scene: Phaser.Scene): void {
 
   for (const [key, colors] of Object.entries(CHARACTERS)) makeCharacter(scene, key, colors);
   makeCat(scene);
+  makeWornHat(scene);
 
   const slime = scene.textures.createCanvas('slime', S * 2, S)!;
   const sc = slime.getContext();

@@ -66,6 +66,8 @@ export interface GameState {
   buffs: Partial<Record<Buff, boolean>>;
   /** Tool levels: 0 = starting tool, 1 = upgraded at Bram's. */
   upgrades: Record<ToolId, number>;
+  /** Side quests from the townsfolk (see sidequests.ts): step numbers, plus Moo for Mayor's progress. */
+  side: { hazel: number; mortimer: number; endorsed: string[]; pledges: string[]; debateDay?: number };
 }
 
 export const HOTBAR_SIZE = 10;
@@ -108,6 +110,7 @@ export function newGame(): GameState {
     recipes: [...STARTING_RECIPES],
     buffs: {},
     upgrades: { hoe: 0, can: 0, sword: 0 },
+    side: { hazel: 0, mortimer: 0, endorsed: [], pledges: [] },
   };
 }
 
